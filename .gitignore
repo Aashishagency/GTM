@@ -1,0 +1,19 @@
+# Secrets & local data — never push these (host env vars / Postgres hold the real ones)
+.env
+**/.env
+*.db
+**/*.db
+instance/
+**/instance/
+
+# Local tunnel binary & logs (not part of the deploy)
+tools/
+**/apollo_webhook_last.json
+**/cf.log
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if campaign else 'New' }} Campaign{% endblock %}
+{% block head_extra %}
+<style>
+.template-card { cursor:pointer; border:2px solid transparent; transition:.2s; }
+.template-card:hover { border-color:#6c87f5; }
+.template-card.selected { border-color:#6c87f5; background:#f0f3ff; }
+#bodyPreview { background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:20px; min-height:200px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0">{{ 'Edit Campaign' if campaign else 'New Campaign' }}</h4>
+  <a href="/campaigns" class="btn btn-outline-secondary btn-sm">← Back</a>
+</div>
+
+<form id="campaignForm">
+<div class="row g-3">
+  <!-- Left: Editor -->
+  <div class="col-lg-7">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Campaign Details</h6>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Campaign Name</label>
+          <input type="text" name="name" class="form-control" required
+            value="{{ campaign.name if campaign else '' }}" placeholder="e.g. Loyalty Managers — June Outreach">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">From Name</label>
+          <input type="text" name="from_name" class="form-control"
+            value="{{ campaign.from_name if campaign else default_from_name }}" placeholder="Your Name / Company">
+          <div class="form-text">
+            Sends from <strong>{{ smtp_user or 'no sender configured' }}</strong>
+            {% if smtp_ok %}<span class="badge bg-success ms-1">ready</span>
+            {% else %}<span class="badge bg-danger ms-1">App Password missing</span>
+            — <a href="/settings">finish setup</a>{% endif %}
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Subject Line
+            <span class="text-muted fw-normal">(supports {{ '{{' }}name{{ '}}' }}, {{ '{{' }}company{{ '}}' }})</span>
+          </label>
+          <input type="text" name="subject" id="subjectInput" class="form-control" required
+            value="{{ campaign.subject if campaign else '' }}"
+            placeholder="Helping {{ '{{' }}company{{ '}}' }} boost dealer loyalty — quick question">
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="fw-bold mb-0">Email Body
+            <span class="text-muted fw-normal small ms-1">Variables: {{ '{{' }}name{{ '}}' }}, {{ '{{' }}first_name{{ '}}' }}, {{ '{{' }}company{{ '}}' }}, {{ '{{' }}title{{ '}}' }}, {{ '{{' }}city{{ '}}' }}</span>
+          </h6>
+          <div class="d-flex gap-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="switchTab('editor')">Edit</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="switchTab('preview')">Preview</button>
+          </div>
+        </div>
+        <div id="editorTab">
+          <textarea name="body_html" id="bodyHtml" class="form-control font-monospace" rows="18" required
+            placeholder="Write your email HTML here…">{{ campaign.body_html if campaign else '' }}</textarea>
+        </div>
+        <div id="previewTab" style="display:none">
+          <div id="bodyPreview"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Templates + Leads -->
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Email Templates</h6>
+        <div class="row g-2">
+          {% set templates = [
+            ('Intro — Loyalty', 'Cold outreach to Loyalty Managers', '<p>Hi {{first_name}},</p><p>I came across <strong>{{company}}</strong> and noticed you\'re leading loyalty initiatives — impressive work in the {{industry}} space.</p><p>We help brands like yours design and automate loyalty programs that genuinely increase repeat purchases and reduce churn. Our clients in India have seen <strong>30–40% improvement</strong> in retention within the first 6 months.</p><p>Would you be open to a 20-minute call this week to explore if there\'s a fit?</p><p>Best,<br>{{sender_name}}</p>'),
+            ('Dealer Loyalty', 'For Dealer Loyalty Managers', '<p>Hi {{first_name}},</p><p>Running dealer loyalty programs is no small feat — especially keeping hundreds of dealers engaged consistently across {{city}} and beyond.</p><p>I wanted to reach out because we\'ve helped several {{industry}} companies automate their dealer reward tracking, tier management, and communication — saving teams like yours 10+ hours a week.</p><p>Happy to share a quick case study if that\'s relevant. Worth a quick chat?</p><p>Regards,<br>{{sender_name}}</p>'),
+            ('Follow-Up', 'Second touch email', '<p>Hi {{first_name}},</p><p>Following up on my earlier note — I know inboxes get busy!</p><p>I\'d love to understand the loyalty challenges {{company}} is currently focused on. Even a 15-minute intro call could be valuable.</p><p>Would Thursday or Friday work for you?</p><p>Best,<br>{{sender_name}}</p>'),
+            ('Value-First', 'Lead with insight', '<p>Hi {{first_name}},</p><p>Quick insight for {{company}}: B2B loyalty programs with tiered rewards see <strong>2x higher engagement</strong> than flat-point systems — especially in the {{industry}} sector.</p><p>We\'ve built this into our platform specifically for Indian market dynamics. Would love to show you what it looks like in action.</p><p>Free for a demo this week?</p><p>Warm regards,<br>{{sender_name}}</p>'),
+          ] %}
+          {% for name, desc, body in templates %}
+          <div class="col-6">
+            <div class="template-card card p-2" onclick="applyTemplate(this, `{{ body|replace('`','\\`') }}`,'{{ name }}')">
+              <p class="mb-0 fw-semibold small">{{ name }}</p>
+              <p class="mb-0 text-muted" style="font-size:.72rem">{{ desc }}</p>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Email -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Send Test Email</h6>
+        <div class="d-flex gap-2">
+          <input type="email" id="testEmailInput" class="form-control form-control-sm" placeholder="your@email.com">
+          <button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" onclick="sendTestEmail()">Send Test</button>
+        </div>
+        <p class="text-muted mt-1 mb-0" style="font-size:.72rem">Will send a preview with sample data</p>
+      </div>
+    </div>
+
+    <!-- Lead Selection -->
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="fw-bold mb-0">Select Recipients</h6>
+          <span class="badge bg-primary rounded-pill" id="selectedLeadCount">0</span>
+        </div>
+        <input type="text" id="leadSearch" class="form-control form-control-sm mb-2" placeholder="Filter leads…">
+        <div style="max-height:300px;overflow-y:auto" id="leadListContainer">
+          {% for lead in leads %}
+          {% if lead.email %}
+          <label class="d-flex align-items-center gap-2 p-1 rounded hover-bg mb-1" style="cursor:pointer">
+            <input type="checkbox" name="lead_ids" value="{{ lead.id }}"
+              {% if added_ids is defined and lead.id in added_ids %}checked{% endif %}
+              class="lead-checkbox" onchange="updateCount()">
+            <div>
+              <span class="small fw-semibold">{{ lead.name }}</span>
+              <span class="text-muted small ms-1">· {{ lead.company }}</span>
+              <br><span class="text-muted" style="font-size:.7rem">{{ lead.email }}</span>
+            </div>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+        <div class="d-flex gap-2 mt-2">
+          <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0" onclick="toggleAll(true)">All</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary btn-sm py-0" onclick="toggleAll(false)">None</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex gap-2 mt-3 justify-content-end">
+  <button type="button" class="btn btn-outline-secondary" onclick="saveDraft()">Save Draft</button>
+  <button type="submit" class="btn btn-primary">Save Campaign</button>
+</div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+const isEdit = {{ 'true' if campaign else 'false' }};
+const campaignId = '{{ campaign.id if campaign else "" }}';
+
+function updateCount() {
+  const n = document.querySelectorAll('.lead-checkbox:checked').length;
+  document.getElementById('selectedLeadCount').textContent = n;
+}
+updateCount();
+
+function toggleAll(val) {
+  document.querySelectorAll('.lead-checkbox').forEach(c => c.checked = val);
+  updateCount();
+}
+
+document.getElementById('leadSearch').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#leadListContainer label').forEach(l => {
+    l.style.display = l.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+function applyTemplate(el, body, name) {
+  document.querySelectorAll('.template-card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('bodyHtml').value = body;
+  if (!document.querySelector('input[name="name"]').value) {
+    document.querySelector('input[name="name"]').value = name + ' — ' + new Date().toLocaleDateString('en-IN',{month:'short',year:'numeric'});
+  }
+}
+
+function switchTab(tab) {
+  if (tab === 'preview') {
+    document.getElementById('bodyPreview').innerHTML = document.getElementById('bodyHtml').value
+      .replace(/\{\{first_name\}\}/g,'Rahul').replace(/\{\{name\}\}/g,'Rahul Sharma')
+      .replace(/\{\{company\}\}/g,'Maruti Suzuki').replace(/\{\{title\}\}/g,'Loyalty Manager')
+      .replace(/\{\{city\}\}/g,'Gurugram').replace(/\{\{industry\}\}/g,'Automotive');
+    document.getElementById('editorTab').style.display = 'none';
+    document.getElementById('previewTab').style.display = 'block';
+  } else {
+    document.getElementById('previewTab').style.display = 'none';
+    document.getElementById('editorTab').style.display = 'block';
+  }
+}
+
+document.getElementById('campaignForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  const url = isEdit ? `/campaigns/${campaignId}/edit` : '/campaigns/new';
+  const resp = await fetch(url, {method:'POST', body: fd});
+  const data = await resp.json();
+  if (data.success) {
+    showToast('Campaign saved!');
+    setTimeout(() => location.href = `/campaigns/${data.id || campaignId}`, 800);
+  } else {
+    showToast(data.error || 'Save failed', 'danger');
+  }
+});
+
+async function saveDraft() {
+  document.getElementById('campaignForm').requestSubmit();
+}
+
+async function sendTestEmail() {
+  const email = document.getElementById('testEmailInput').value;
+  if (!email) { showToast('Enter a test email address', 'warning'); return; }
+  if (!campaignId) { showToast('Save campaign first, then send test', 'warning'); return; }
+  const data = await postJSON(`/campaigns/${campaignId}/send-test`, {email});
+  if (data.success) showToast(`Test email sent to ${email}!`);
+  else showToast('Failed: ' + data.error, 'danger');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,65 @@
+# Render.com deployment blueprint for the GTM Workflow app.
+# In Render: New → Blueprint → connect this repo. It creates the web service + a
+# free Postgres DB and wires DATABASE_URL automatically. Fill the `sync: false`
+# secrets (API keys, SMTP password, login) in the Render dashboard.
+services:
+  - type: web
+    name: gtm-workflow
+    runtime: python
+    rootDir: gtm_workflow
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120
+    healthCheckPath: /healthz
+    envVars:
+      - key: RUN_SCHEDULER          # start the background scheduler under gunicorn
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+      - key: DATA_PROVIDER
+        value: hunter               # change to "apollo" to default to Apollo
+      - key: DATABASE_URL           # durable Postgres (auto-wired from the DB below)
+        fromDatabase:
+          name: gtm-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: info@aashishagency.com
+      - key: FROM_NAME
+        value: Aashish Agency
+      - key: IMAP_HOST
+        value: imap.gmail.com
+      - key: IMAP_PORT
+        value: "993"
+      # ── Secrets: set these in the Render dashboard (Environment tab) ──
+      - key: HUNTER_API_KEY
+        sync: false
+      - key: APOLLO_API_KEY
+        sync: false
+      - key: SMTP_PASS              # Google App Password for info@aashishagency.com
+        sync: false
+      # "Sign in with Google" restricted to one address (preferred login)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: ALLOWED_GOOGLE_EMAILS
+        value: info@aashishagency.com,sujit@aashishagency.com
+      # Password login — fallback used only while Google isn't configured
+      - key: APP_USERNAME           # login username for the app UI
+        sync: false
+      - key: APP_PASSWORD           # login password for the app UI
+        sync: false
+      - key: APP_BASE_URL           # set to https://<your-service>.onrender.com after 1st deploy
+        sync: false
+
+databases:
+  - name: gtm-db
+    plan: free
+    databaseName: gtm
+    user: gtm

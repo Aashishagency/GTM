@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}{{ lead.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">{{ lead.name }}</h4>
+    <p class="text-muted mb-0 small">{{ lead.title }} @ {{ lead.company }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    {% if lead.linkedin_url %}
+    <a href="{{ lead.linkedin_url }}" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-linkedin me-1"></i>LinkedIn</a>
+    {% endif %}
+    {% if not lead.enriched %}
+    <button class="btn btn-warning btn-sm" id="enrichBtn" onclick="enrichLead()"><i class="bi bi-unlock me-1"></i>Enrich (1 credit)</button>
+    {% endif %}
+    <button class="btn btn-danger btn-sm" onclick="deleteLead()"><i class="bi bi-trash me-1"></i>Delete</button>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <!-- Lead Info Card -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
+            style="width:56px;height:56px;font-size:1.4rem;font-weight:700">
+            {{ lead.name[0].upper() }}
+          </div>
+          <div>
+            <h5 class="fw-bold mb-0">{{ lead.name }}</h5>
+            <p class="text-muted mb-0">{{ lead.title }}</p>
+          </div>
+        </div>
+
+        <form method="POST" action="/leads/{{ lead.id }}/update">
+        <table class="table table-sm mb-3">
+          <tr><td class="text-muted small" style="width:110px">Company</td><td><strong>{{ lead.company }}</strong></td></tr>
+          <tr><td class="text-muted small">Email</td><td>
+            {% if lead.email %}<a href="mailto:{{ lead.email }}" class="text-decoration-none">{{ lead.email }}</a>
+            {% elif not lead.enriched %}<span class="text-warning small"><i class="bi bi-lock"></i> locked — enrich to reveal</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td></tr>
+          <tr><td class="text-muted small">Mobile</td><td>
+            {% if lead.phone %}<a href="tel:{{ lead.phone }}" class="text-decoration-none fw-semibold">{{ lead.phone }}</a>
+            {% elif lead.has_mobile_on_file %}
+              <button type="button" class="btn btn-outline-success btn-sm py-0" id="revealBtn" onclick="revealMobile()">
+                <i class="bi bi-phone me-1"></i>Reveal mobile (~8 credits)</button>
+              <div class="text-muted" style="font-size:.68rem">Apollo has a mobile on file for this contact.</div>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td></tr>
+          <tr><td class="text-muted small">Location</td><td>{{ lead.city }}{% if lead.city and lead.state %}, {% endif %}{{ lead.state }}, {{ lead.country }}</td></tr>
+          <tr><td class="text-muted small">Industry</td><td>{{ lead.industry or '—' }}</td></tr>
+          <tr><td class="text-muted small">Company Size</td><td>{{ lead.company_size or '—' }} employees</td></tr>
+          <tr><td class="text-muted small">Website</td><td>
+            {% if lead.website %}<a href="{{ lead.website }}" target="_blank" class="text-truncate d-block" style="max-width:180px">{{ lead.website }}</a>
+            {% else %}—{% endif %}
+          </td></tr>
+          <tr><td class="text-muted small">Source</td><td><span class="badge bg-light text-dark border">{{ lead.source }}</span></td></tr>
+          <tr><td class="text-muted small">Added</td><td>{{ lead.created_at.strftime('%d %b %Y') }}</td></tr>
+        </table>
+
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Status</label>
+          <select name="status" class="form-select form-select-sm">
+            {% for s in ['new','contacted','replied','qualified','disqualified'] %}
+            <option value="{{ s }}" {% if lead.status==s %}selected{% endif %}>{{ s|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Tags</label>
+          <input type="text" name="tags" class="form-control form-control-sm" value="{{ lead.tags or '' }}" placeholder="automotive, tier1, hot-lead…">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Notes</label>
+          <textarea name="notes" class="form-control form-control-sm" rows="3" placeholder="Add notes…">{{ lead.notes or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm w-100">Save Changes</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <!-- Campaign Activity -->
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Campaign Activity</h6>
+        {% if contacts %}
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Campaign</th><th>Status</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Sent</th></tr></thead>
+          <tbody>
+          {% for cc in contacts %}
+          <tr>
+            <td>
+              <a href="/campaigns/{{ cc.campaign_id }}" class="text-decoration-none small fw-semibold">
+                {{ cc.campaign.name if cc.campaign else cc.campaign_id[:8] }}
+              </a>
+            </td>
+            <td>
+              <span class="badge rounded-pill
+                {% if cc.status=='replied' %}bg-success
+                {% elif cc.status=='clicked' %}bg-info
+                {% elif cc.status in ['opened','sent'] %}bg-warning text-dark
+                {% elif cc.status=='failed' %}bg-danger
+                {% else %}bg-secondary{% endif %}">
+                {{ cc.status }}
+              </span>
+            </td>
+            <td class="text-center">{{ cc.open_count if cc.open_count else '—' }}</td>
+            <td class="text-center">{{ cc.click_count if cc.click_count else '—' }}</td>
+            <td class="text-center">{% if cc.replied_at %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}—{% endif %}</td>
+            <td><span class="text-muted small">{{ cc.sent_at.strftime('%d %b') if cc.sent_at else '—' }}</span></td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+          <i class="bi bi-envelope fs-2 d-block mb-2 opacity-25"></i>
+          Not part of any campaign yet.<br>
+          <a href="/campaigns/new" class="small">Add to a campaign →</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function deleteLead() {
+  if (!confirm('Delete this lead? This cannot be undone.')) return;
+  const data = await postJSON('/leads/{{ lead.id }}/delete', {});
+  if (data.success) { showToast('Lead deleted'); setTimeout(()=>location.href='/leads', 800); }
+  else showToast(data.error, 'danger');
+}
+
+async function enrichLead() {
+  const btn = document.getElementById('enrichBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enriching…';
+  const data = await postJSON('/leads/{{ lead.id }}/enrich', {});
+  if (data.success && data.enriched) {
+    showToast('Enriched! Reloading…');
+    setTimeout(()=>location.reload(), 900);
+  } else if (data.success) {
+    btn.outerHTML = '<span class="text-muted small">No match found (0 credits charged)</span>';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-unlock me-1"></i>Enrich (1 credit)';
+    showToast(data.error || 'Enrich failed', 'danger');
+  }
+}
+
+async function revealMobile() {
+  if (!confirm('Reveal this mobile from Apollo? This consumes ~8 Apollo credits.')) return;
+  const btn = document.getElementById('revealBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Requesting…';
+  const data = await postJSON('/leads/{{ lead.id }}/reveal-phone', {});
+  if (!data.success) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-phone me-1"></i>Reveal mobile (~8 credits)';
+    showToast(data.error || 'Reveal failed', 'danger');
+    return;
+  }
+  if (data.phone) { showToast('Mobile revealed!'); setTimeout(()=>location.reload(), 800); return; }
+  // Apollo delivers the number asynchronously to our webhook — poll for it.
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Apollo is sending the number…';
+  let tries = 0;
+  const poll = setInterval(async () => {
+    tries++;
+    const r = await fetch('/api/leads?per_page=200');
+    const j = await r.json();
+    const me = (j.leads||[]).find(l => l.id === '{{ lead.id }}');
+    if (me && me.phone) { clearInterval(poll); showToast('Mobile received!'); location.reload(); }
+    else if (tries >= 12) { clearInterval(poll); btn.disabled=false;
+      btn.innerHTML='<i class="bi bi-arrow-clockwise me-1"></i>Still processing — refresh shortly';
+      showToast('Apollo is still processing the number; refresh in a moment.', 'warning'); }
+  }, 5000);
+}
+</script>
+{% endblock %}

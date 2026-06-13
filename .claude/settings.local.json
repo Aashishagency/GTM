@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "PowerShell($py = \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\"; cd \"C:\\\\Users\\\\User\\\\Desktop\\\\claude\\\\gtm_workflow\"; & $py _pv.py; Remove-Item _pv.py)",
+      "PowerShell(nslookup -type=MX aashishagency.com 8.8.8.8)",
+      "mcp__6b3a773d-ff45-4485-b2e4-bdb05a6ce953__apollo_mixed_people_api_search"
+    ]
+  }
+}

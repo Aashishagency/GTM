@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "GTM Workflow",
+      "runtimeExecutable": "C:\\Users\\User\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "runtimeArgs": ["gtm_workflow/app.py"],
+      "port": 5000
+    }
+  ]
+}

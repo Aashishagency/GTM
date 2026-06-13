@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Leads{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h4 class="fw-bold mb-0">All Leads</h4>
+  <div class="d-flex gap-2">
+    <a href="/leads/export" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Export CSV</a>
+    <a href="/leads/discover" class="btn btn-primary btn-sm"><i class="bi bi-search me-1"></i>Discover More</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <form method="GET" class="d-flex gap-2 align-items-center flex-wrap">
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="width:220px" placeholder="Search name, company, email…">
+      <select name="status" class="form-select form-select-sm" style="width:150px">
+        <option value="">All Statuses</option>
+        {% for s in ['new','contacted','replied','qualified','disqualified'] %}
+        <option value="{{ s }}" {% if status_filter==s %}selected{% endif %}>{{ s|title }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary" type="submit">Filter</button>
+      {% if q or status_filter %}<a href="/leads" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    {% if pagination.items %}
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3"><input type="checkbox" id="selectAll"></th>
+          <th>Name / Email</th><th>Company</th><th>Title</th>
+          <th>Phone</th><th>Location</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for lead in pagination.items %}
+      <tr>
+        <td class="ps-3"><input type="checkbox" class="lead-check" value="{{ lead.id }}"></td>
+        <td>
+          <a href="/leads/{{ lead.id }}" class="fw-semibold text-dark text-decoration-none">{{ lead.name }}</a>
+          <br><span class="text-muted small">{{ lead.email or '—' }}</span>
+        </td>
+        <td>
+          <span class="small">{{ lead.company }}</span>
+          {% if lead.website %}<br><a href="{{ lead.website }}" target="_blank" class="text-muted" style="font-size:.7rem">{{ lead.website|truncate(30) }}</a>{% endif %}
+        </td>
+        <td><span class="small text-muted">{{ lead.title }}</span></td>
+        <td><span class="small">{{ lead.phone or '—' }}</span></td>
+        <td><span class="small text-muted">{{ lead.city }}{% if lead.city and lead.state %}, {% endif %}{{ lead.state }}</span></td>
+        <td><span class="badge rounded-pill bg-light text-dark border" style="font-size:.7rem">{{ lead.status }}</span></td>
+        <td>
+          {% if lead.linkedin_url %}<a href="{{ lead.linkedin_url }}" target="_blank" class="text-primary me-2"><i class="bi bi-linkedin"></i></a>{% endif %}
+          <a href="/leads/{{ lead.id }}" class="text-muted"><i class="bi bi-chevron-right"></i></a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Bulk Actions -->
+    <div class="p-3 d-flex justify-content-between align-items-center border-top bg-light" id="bulkBar" style="display:none!important">
+      <span class="small text-muted"><span id="selectedCount">0</span> selected</span>
+      <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" id="bulkCampaignSelect" style="width:220px">
+          <option value="">Add to campaign…</option>
+        </select>
+        <button class="btn btn-sm btn-primary" onclick="addToCampaign()">Add</button>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if pagination.pages > 1 %}
+    <div class="p-3 d-flex justify-content-center">
+      <nav><ul class="pagination pagination-sm mb-0">
+        {% if pagination.has_prev %}<li class="page-item"><a class="page-link" href="?page={{ pagination.prev_num }}&q={{ q }}&status={{ status_filter }}">‹</a></li>{% endif %}
+        {% for p in pagination.iter_pages() %}
+          {% if p %}<li class="page-item {% if p==pagination.page %}active{% endif %}"><a class="page-link" href="?page={{ p }}&q={{ q }}&status={{ status_filter }}">{{ p }}</a></li>
+          {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+        {% endfor %}
+        {% if pagination.has_next %}<li class="page-item"><a class="page-link" href="?page={{ pagination.next_num }}&q={{ q }}&status={{ status_filter }}">›</a></li>{% endif %}
+      </ul></nav>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>
+      No leads found. <a href="/leads/discover">Discover leads →</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const selectAll = document.getElementById('selectAll');
+const bulkBar = document.getElementById('bulkBar');
+const countEl = document.getElementById('selectedCount');
+
+selectAll.addEventListener('change', () => {
+  document.querySelectorAll('.lead-check').forEach(c => c.checked = selectAll.checked);
+  updateBulkBar();
+});
+document.querySelectorAll('.lead-check').forEach(c => c.addEventListener('change', updateBulkBar));
+
+function updateBulkBar() {
+  const checked = document.querySelectorAll('.lead-check:checked');
+  countEl.textContent = checked.length;
+  bulkBar.style.display = checked.length > 0 ? 'flex' : 'none';
+}
+
+// Load campaigns for bulk add
+fetch('/api/campaigns').then(r=>r.json()).then(data=>{
+  const sel = document.getElementById('bulkCampaignSelect');
+  (data.campaigns||[]).forEach(c=>{
+    sel.insertAdjacentHTML('beforeend',`<option value="${c.id}">${c.name}</option>`);
+  });
+}).catch(()=>{});
+
+async function addToCampaign() {
+  const campaignId = document.getElementById('bulkCampaignSelect').value;
+  if (!campaignId) return showToast('Select a campaign first', 'warning');
+  const ids = [...document.querySelectorAll('.lead-check:checked')].map(c=>c.value);
+  const r = await postJSON(`/campaigns/${campaignId}/add-leads`, {lead_ids: ids});
+  if (r.success) showToast(`Added ${r.added} leads to campaign`);
+  else showToast(r.error, 'danger');
+}
+</script>
+{% endblock %}

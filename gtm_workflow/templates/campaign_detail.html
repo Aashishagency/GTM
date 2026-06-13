@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">{{ campaign.name }}</h4>
+    <p class="text-muted mb-0 small">{{ campaign.subject }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="/campaigns/{{ campaign.id }}/edit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-pencil me-1"></i>Edit</a>
+    {% if sendable > 0 and campaign.status != 'active' %}
+    <button class="btn btn-primary btn-sm" onclick="sendCampaign()"><i class="bi bi-send me-1"></i>
+      {{ 'Retry Failed' if sent > 0 else 'Send Now' }} ({{ sendable }})</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Stats Bar -->
+<div class="row g-3 mb-4">
+  {% set stats = [
+    ('Recipients', total, 'bi-people', '#6c87f5'),
+    ('Sent', sent, 'bi-send', '#20c997'),
+    ('Delivered', delivered, 'bi-check2-circle', '#0d6efd'),
+    ('Opened', opened, 'bi-envelope-open', '#fd7e14'),
+    ('Clicked', clicked, 'bi-cursor', '#0dcaf0'),
+    ('Replied', replied, 'bi-reply', '#198754'),
+    ('Bounced', bounced, 'bi-x-circle', '#dc3545'),
+  ] %}
+  {% for label, val, icon, color in stats %}
+  <div class="col">
+    <div class="card text-center p-3">
+      <i class="bi {{ icon }} fs-4 mb-1" style="color:{{ color }}"></i>
+      <h4 class="fw-bold mb-0">{{ val }}</h4>
+      <p class="text-muted mb-0 small">{{ label }}</p>
+      {% if label not in ('Recipients','Bounced') and sent > 0 %}
+      <span class="badge bg-light text-muted" style="font-size:.7rem">{{ (val/sent*100)|round(1) }}%</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Funnel Visual -->
+{% if sent > 0 %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h6 class="fw-bold mb-3">Engagement Funnel</h6>
+    <div class="d-flex align-items-end gap-2" style="height:100px">
+      {% for label, val, color in [('Sent', sent, '#6c87f5'),('Delivered', delivered, '#0d6efd'),('Opened', opened,'#fd7e14'),('Clicked',clicked,'#20c997'),('Replied',replied,'#e91e8c')] %}
+      {% set pct = (val/sent*100) if sent else 0 %}
+      <div class="d-flex flex-column align-items-center flex-grow-1">
+        <span class="small fw-bold mb-1">{{ pct|round(0)|int }}%</span>
+        <div style="width:100%;height:{{ [pct,5]|max }}px;background:{{ color }};border-radius:4px 4px 0 0;min-height:8px"></div>
+        <span class="text-muted mt-1" style="font-size:.7rem">{{ label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Contacts Table -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+      <h6 class="fw-bold mb-0">Recipients</h6>
+      <input type="text" id="contactSearch" class="form-control form-control-sm" style="width:220px" placeholder="Search…">
+    </div>
+    <div style="overflow-x:auto">
+    <table class="table table-hover mb-0" id="contactTable">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Name</th><th>Company</th><th>Email</th>
+          <th>Status</th><th>Opened</th><th>Clicks</th><th>Replied</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for cc, lead in contacts %}
+      <tr>
+        <td class="ps-3">
+          <a href="/leads/{{ lead.id }}" class="fw-semibold text-dark text-decoration-none">{{ lead.name }}</a>
+        </td>
+        <td><span class="small">{{ lead.company }}</span></td>
+        <td><span class="small text-muted">{{ lead.email }}</span></td>
+        <td>
+          <span class="badge rounded-pill
+            {% if cc.status=='replied' %}bg-success
+            {% elif cc.status=='clicked' %}bg-info
+            {% elif cc.status in ['opened','sent'] %}bg-warning text-dark
+            {% elif cc.status=='failed' %}bg-danger
+            {% elif cc.status=='bounced' %}bg-danger
+            {% else %}bg-secondary{% endif %}">
+            {{ cc.status }}
+          </span>
+        </td>
+        <td class="text-center">
+          {% if cc.open_count > 0 %}
+          <span class="badge bg-warning text-dark">{{ cc.open_count }}×</span>
+          <br><span class="text-muted" style="font-size:.65rem">{{ cc.opened_at.strftime('%d %b %H:%M') if cc.opened_at }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-center">
+          {% if cc.click_count > 0 %}
+          <span class="badge bg-info text-dark">{{ cc.click_count }}×</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-center">
+          {% if cc.replied_at %}
+          <i class="bi bi-check-circle-fill text-success"></i>
+          <br><span class="text-muted" style="font-size:.65rem">{{ cc.replied_at.strftime('%d %b') }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if not cc.replied_at %}
+          <button class="btn btn-xs btn-outline-success btn-sm py-0 px-1" style="font-size:.7rem"
+            onclick="markReplied('{{ cc.tracking_id }}')">Mark Replied</button>
+          {% endif %}
+          {% if cc.status == 'failed' and cc.error_message %}
+          <span class="text-danger" style="font-size:.7rem" title="{{ cc.error_message }}">
+            <i class="bi bi-exclamation-circle"></i> Failed
+          </span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+<!-- Send Confirm Modal -->
+<div class="modal fade" id="sendModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Confirm Send</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p>Send this campaign to <strong>{{ sendable }}</strong> recipient{{ 's' if sendable != 1 }}?</p>
+        {% if not smtp_ok %}
+        <div class="alert alert-warning py-2 small">SMTP isn’t configured yet — <a href="/settings">add the App Password</a> first or the send will be refused.</div>
+        {% endif %}
+        <p class="text-muted small">Emails will be sent gradually to avoid spam filters.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="confirmSend()">Yes, Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function sendCampaign() {
+  new bootstrap.Modal(document.getElementById('sendModal')).show();
+}
+async function confirmSend() {
+  bootstrap.Modal.getInstance(document.getElementById('sendModal')).hide();
+  const data = await postJSON('/campaigns/{{ campaign.id }}/send', {});
+  if (data.success) {
+    showToast(data.message || 'Campaign sending started!');
+    setTimeout(() => location.reload(), 2000);
+  } else {
+    showToast(data.error || 'Failed to send', 'danger');
+  }
+}
+async function markReplied(trackingId) {
+  const data = await postJSON('/campaigns/{{ campaign.id }}/mark-replied', {tracking_id: trackingId});
+  if (data.success) { showToast('Marked as replied!'); setTimeout(()=>location.reload(), 800); }
+}
+document.getElementById('contactSearch').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#contactTable tbody tr').forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

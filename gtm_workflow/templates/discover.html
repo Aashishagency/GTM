@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Discover Leads{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Discover Leads</h4>
+    <p class="text-muted mb-0 small">
+      Provider: <span class="badge bg-dark" id="providerBadge">…</span>
+      <span id="providerHint"></span>
+    </p>
+  </div>
+  <button class="btn btn-outline-secondary btn-sm" onclick="testApiKey(this)"><i class="bi bi-key me-1"></i>Test API Key</button>
+</div>
+
+<div id="apiKeyBanner" class="alert alert-warning d-none mb-3"></div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Search Filters</h6>
+        <form id="discoverForm">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Data provider</label>
+            <select name="provider" id="providerSelect" class="form-select form-select-sm">
+              <option value="hunter">Hunter.io — free, real verified emails</option>
+              <option value="apollo">Apollo.io — native title targeting (paid plan)</option>
+            </select>
+            <span class="text-muted" style="font-size:.72rem" id="providerSelHint"></span>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Role keywords <span class="text-muted fw-normal">(comma-separated)</span></label>
+            <textarea name="titles" class="form-control form-control-sm" rows="2"
+              placeholder="Loyalty Manager, Dealer Loyalty Manager, CRM Manager, Customer Retention Manager">Loyalty, Dealer Loyalty, Head of Loyalty, CRM, Customer Retention, Marketing, Sales, Channel</textarea>
+            <span class="text-muted" style="font-size:.72rem">Apollo: exact job titles. Hunter: keywords rank each company's contacts (decision-makers first) — they don't discard.</span>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" name="strict" id="strictMatch">
+            <label class="form-check-label small" for="strictMatch">
+              Strict title match <span class="text-muted" style="font-size:.72rem">— only keep contacts whose title contains a keyword (may return fewer/none)</span>
+            </label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Target industries / categories</label>
+            <div class="d-flex flex-wrap gap-1" id="industryCheckboxes">
+              <span class="text-muted small">Loading…</span>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Company Size</label>
+            <div class="d-flex flex-wrap gap-1" id="sizeCheckboxes">
+              {% for sz in ['1-10','11-50','51-200','201-500','501-1000','1001-5000','5001-10000','10001+'] %}
+              <label class="badge bg-light text-dark border" style="cursor:pointer;font-size:.75rem">
+                <input type="checkbox" name="size" value="{{ sz }}" {% if sz in ['201-500','501-1000','1001-5000','5001-10000','10001+'] %}checked{% endif %} class="me-1 size-cb">{{ sz }}
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Max companies per run</label>
+            <input type="number" name="max_companies" id="maxCompanies" class="form-control form-control-sm" value="10" min="1" max="50">
+            <input type="hidden" name="country" value="India">
+            <input type="hidden" name="per_page" value="25">
+            <div class="mt-1 p-2 rounded" style="background:#eef2ff;font-size:.74rem">
+              <i class="bi bi-coin me-1 text-primary"></i>
+              <span id="creditEstimate">Select industries to estimate cost.</span>
+            </div>
+          </div>
+          <div class="form-check mb-3 p-2 rounded" style="background:#fff8e1" id="autoEnrichBlock">
+            <input class="form-check-input" type="checkbox" name="auto_enrich" id="autoEnrich">
+            <label class="form-check-label small" for="autoEnrich">
+              <strong>Auto-enrich emails &amp; phones</strong><br>
+              <span class="text-muted" style="font-size:.72rem">
+                <i class="bi bi-info-circle text-warning"></i>
+                <span id="enrichNote">Hunter returns emails directly. For Apollo, search returns no
+                emails — enrichment unlocks them (1 credit per lead).</span>
+              </span>
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary w-100" id="searchBtn">
+            <i class="bi bi-search me-1"></i>Find Leads
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div id="resultsHeader" class="d-flex justify-content-between align-items-center mb-3" style="display:none!important">
+          <h6 class="fw-bold mb-0">Results <span class="text-muted fw-normal" id="resultCount"></span></h6>
+          <button class="btn btn-sm btn-success" id="saveAllBtn" onclick="saveAll()"><i class="bi bi-plus-circle me-1"></i>Save All to Leads</button>
+        </div>
+        <div id="loadingState" class="text-center py-5" style="display:none">
+          <div class="spinner-border text-primary mb-2"></div>
+          <p class="text-muted">Searching… (this can take a few seconds per company)</p>
+        </div>
+        <div id="emptyState" class="text-center py-5 text-muted">
+          <i class="bi bi-search fs-1 d-block mb-2 opacity-25"></i>
+          Configure filters and click Search
+        </div>
+        <div id="resultsTable" style="display:none">
+          <table class="table table-hover">
+            <thead><tr><th><input type="checkbox" id="selectAllResults"></th><th>Name</th><th>Company</th><th>Contact</th><th>LinkedIn</th><th></th></tr></thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-primary" onclick="saveSelected()"><i class="bi bi-plus me-1"></i>Save Selected</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Save Result Toast will appear bottom-right -->
+{% endblock %}
+{% block scripts %}
+<script>
+let fetchedLeads = [];
+
+// Provider-aware UI: badge, hints, and key-config banner (spends nothing).
+const ENV_HELP = {
+  hunter: 'Add <code>HUNTER_API_KEY</code> to <code>.env</code> and restart. Get a free key (50 credits/mo) at <em>hunter.io → API</em>.',
+  apollo: 'Add <code>APOLLO_API_KEY</code> (Professional-plan master key) to <code>.env</code> and restart. <em>apollo.io → Settings → Integrations → API</em>.'
+};
+let ACTIVE_PROVIDER = 'hunter';
+const DEFAULT_INDUSTRIES = ['Automotive','Auto Components','Consumer Durables','Retail'];
+
+function currentProvider(){ return document.getElementById('providerSelect').value; }
+
+// Refresh badge, hints and the key-config banner for the SELECTED provider.
+function refreshProviderUI(){
+  ACTIVE_PROVIDER = currentProvider();
+  document.getElementById('providerBadge').textContent = ACTIVE_PROVIDER.toUpperCase();
+  document.getElementById('providerHint').innerHTML = ACTIVE_PROVIDER === 'hunter'
+    ? '<span class="text-muted small">— free tier, real emails. Resolves your industries to companies, then finds people.</span>'
+    : '<span class="text-muted small">— native title + industry + size prospecting (paid plan).</span>';
+  document.getElementById('providerSelHint').innerHTML = ACTIVE_PROVIDER === 'hunter'
+    ? 'Finds real verified emails inside the companies matched by your industries.'
+    : 'Searches people by exact title across all matching companies (requires a paid Apollo plan with API access).';
+  fetch('/api/provider/status?provider=' + ACTIVE_PROVIDER).then(r=>r.json()).then(d=>{
+    const b = document.getElementById('apiKeyBanner');
+    if (!d.configured) {
+      b.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i><strong>${ACTIVE_PROVIDER.toUpperCase()} API key not configured.</strong> ` + (ENV_HELP[ACTIVE_PROVIDER]||'');
+      b.classList.remove('d-none');
+    } else {
+      b.classList.add('d-none');
+    }
+  }).catch(()=>{});
+  updateEstimate();
+}
+
+// Default the dropdown to whatever .env has configured, then wire reactivity.
+fetch('/api/provider/status').then(r=>r.json()).then(d=>{
+  document.getElementById('providerSelect').value = d.default || 'hunter';
+  refreshProviderUI();
+}).catch(refreshProviderUI);
+document.getElementById('providerSelect').addEventListener('change', refreshProviderUI);
+
+// Load industry/category checkboxes from the built-in directory.
+fetch('/api/industries').then(r=>r.json()).then(d=>{
+  const box = document.getElementById('industryCheckboxes');
+  box.innerHTML = '';
+  (d.industries||[]).forEach(ind=>{
+    const checked = DEFAULT_INDUSTRIES.includes(ind) ? 'checked' : '';
+    box.insertAdjacentHTML('beforeend',
+      `<label class="badge bg-light text-dark border" style="cursor:pointer;font-size:.75rem">
+         <input type="checkbox" name="industry" value="${ind}" ${checked} class="me-1 ind-cb">${ind}
+       </label>`);
+  });
+  box.querySelectorAll('.ind-cb').forEach(c=>c.addEventListener('change', updateEstimate));
+  updateEstimate();
+}).catch(()=>{});
+
+document.querySelectorAll('.size-cb').forEach(c=>c.addEventListener('change', updateEstimate));
+document.getElementById('maxCompanies').addEventListener('input', updateEstimate);
+
+function selectedIndustries(){ return [...document.querySelectorAll('.ind-cb:checked')].map(c=>c.value); }
+function selectedSizes(){ return [...document.querySelectorAll('.size-cb:checked')].map(c=>c.value); }
+
+async function updateEstimate(){
+  const inds = selectedIndustries(), szs = selectedSizes();
+  const max = document.getElementById('maxCompanies').value || 10;
+  const el = document.getElementById('creditEstimate');
+  if (!inds.length){ el.textContent = 'Select at least one industry.'; return; }
+  try {
+    const q = new URLSearchParams({industries:inds.join(','), sizes:szs.join(','), limit:max});
+    const d = await (await fetch('/api/companies/preview?'+q)).json();
+    if (ACTIVE_PROVIDER === 'hunter')
+      el.innerHTML = `<strong>${d.count}</strong> companies will be searched ≈ <strong>${d.count} Hunter credit(s)</strong>.`;
+    else
+      el.innerHTML = `<strong>${d.count}</strong> target companies matched (Apollo searches by filters directly).`;
+  } catch(e){ el.textContent = 'Estimate unavailable.'; }
+}
+
+async function testApiKey(btn) {
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing…';
+  try {
+    const d = await postJSON('/api/provider/test', {provider: currentProvider()});
+    showToast(d.message, d.success ? 'success' : 'danger');
+    document.getElementById('apiKeyBanner').classList.toggle('d-none', d.success);
+  } catch(e) { showToast('Test failed: ' + e.message, 'danger'); }
+  btn.disabled = false;
+  btn.innerHTML = orig;
+}
+
+document.getElementById('discoverForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const inds = selectedIndustries();
+  if (!inds.length){ showToast('Select at least one industry/category', 'warning'); return; }
+  const fd = new FormData(this);
+  fd.delete('size'); fd.append('sizes', selectedSizes().join(','));
+  fd.delete('industry'); fd.append('industries', inds.join(','));
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsTable').style.display = 'none';
+  document.getElementById('resultsHeader').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('searchBtn').disabled = true;
+
+  try {
+    const resp = await fetch('/leads/discover', {method:'POST', body: fd});
+    const data = await resp.json();
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('searchBtn').disabled = false;
+    if (data.success) {
+      fetchedLeads = data.leads || [];
+      renderResults(fetchedLeads, data.saved, data.skipped, data.note);
+      if (data.note) showToast(data.note, fetchedLeads.length ? 'info' : 'warning');
+    } else {
+      showToast(data.error || 'Search failed', 'danger');
+      document.getElementById('emptyState').style.display = 'block';
+    }
+  } catch(err) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('searchBtn').disabled = false;
+    showToast('Network error: ' + err.message, 'danger');
+    document.getElementById('emptyState').style.display = 'block';
+  }
+});
+
+function renderResults(leads, saved, skipped, note) {
+  const tbody = document.getElementById('resultsBody');
+  tbody.innerHTML = '';
+  if (!leads.length) {
+    document.getElementById('emptyState').innerHTML =
+      '<i class="bi bi-search fs-1 d-block mb-2 opacity-25"></i>' +
+      (note || 'No new results found. Try different filters.');
+    document.getElementById('emptyState').style.display = 'block';
+    return;
+  }
+  leads.forEach((l, i) => {
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td><input type="checkbox" class="res-check" value="${i}" checked></td>
+        <td><strong>${l.name}</strong><br><span class="text-muted small">${l.title}</span></td>
+        <td><span class="small">${l.company}</span><br><span class="text-muted" style="font-size:.7rem">${l.industry||''}</span></td>
+        <td>
+          ${l.email ? `<span class="small d-block"><i class="bi bi-envelope me-1 text-muted"></i>${l.email}</span>` : '<span class="small d-block text-warning"><i class="bi bi-lock me-1"></i>email locked</span>'}
+          ${l.phone ? `<span class="small d-block"><i class="bi bi-telephone me-1 text-muted"></i>${l.phone}</span>` : ''}
+          ${!l.enriched ? `<button class="btn btn-sm btn-outline-warning py-0 px-1 mt-1" style="font-size:.7rem" onclick="enrichLead('${l.id}', this)"><i class="bi bi-unlock me-1"></i>Enrich (1 credit)</button>` : ''}
+        </td>
+        <td>${l.linkedin_url ? `<a href="${l.linkedin_url}" target="_blank" class="text-primary"><i class="bi bi-linkedin"></i></a>` : '—'}</td>
+        <td><a href="/leads/${l.id}" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1" style="font-size:.7rem">View</a></td>
+      </tr>`);
+  });
+  document.getElementById('resultCount').textContent = `— ${leads.length} new saved (${skipped} duplicates skipped)`;
+  document.getElementById('resultsHeader').style.display = 'flex';
+  document.getElementById('resultsTable').style.display = 'block';
+
+  document.getElementById('selectAllResults').addEventListener('change', function() {
+    document.querySelectorAll('.res-check').forEach(c => c.checked = this.checked);
+  });
+}
+
+async function enrichLead(leadId, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  const data = await postJSON(`/leads/${leadId}/enrich`, {});
+  if (data.success && data.enriched) {
+    const td = btn.closest('td');
+    td.innerHTML = `<span class="small d-block"><i class="bi bi-envelope me-1 text-success"></i>${data.email}</span>`
+      + (data.phone ? `<span class="small d-block"><i class="bi bi-telephone me-1 text-success"></i>${data.phone}</span>` : '');
+    showToast('Lead enriched!');
+  } else if (data.success) {
+    btn.outerHTML = '<span class="small text-muted">No match found (0 credits)</span>';
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-unlock me-1"></i>Enrich (1 credit)';
+    showToast(data.error || 'Enrich failed', 'danger');
+  }
+}
+
+function saveAll() {
+  showToast(`${fetchedLeads.length} leads already saved to database!`);
+  window.location.href = '/leads';
+}
+
+function saveSelected() {
+  showToast('Selected leads are already saved. View them in All Leads.', 'info');
+  window.location.href = '/leads';
+}
+</script>
+{% endblock %}

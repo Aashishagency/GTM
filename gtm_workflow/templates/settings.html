@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Settings</h4>
+    <p class="text-muted mb-0 small">Sender identity, SMTP &amp; tracking configuration</p>
+  </div>
+</div>
+
+{% if not smtp_ok %}
+<div class="alert alert-warning d-flex align-items-center gap-2">
+  <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+  <div>
+    <strong>One step left to send campaigns:</strong> paste the Google App Password for
+    <strong>{{ smtp_user or 'info@aashishagency.com' }}</strong> below.
+    Create it at <em>myaccount.google.com → Security → 2-Step Verification → App passwords</em>
+    (2-Step Verification must be ON for the account).
+  </div>
+</div>
+{% else %}
+<div class="alert alert-success d-flex align-items-center gap-2">
+  <i class="bi bi-check-circle-fill fs-5"></i>
+  <div><strong>Email sending is configured</strong> as {{ smtp_user }}. Use “Test Connection” below to verify the login.</div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-envelope-at me-1"></i>Sender Email (SMTP)</h6>
+        <form id="smtpForm">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold">Email Address (From)</label>
+              <input type="email" name="smtp_user" class="form-control" value="{{ smtp_user }}" placeholder="info@aashishagency.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">From Name</label>
+              <input type="text" name="from_name" class="form-control" value="{{ from_name }}" placeholder="Aashish Agency">
+            </div>
+            <div class="col-md-12">
+              <label class="form-label small fw-semibold">Google App Password
+                {% if smtp_pass_set %}<span class="badge bg-success ms-1">saved</span>{% else %}<span class="badge bg-danger ms-1">not set</span>{% endif %}
+              </label>
+              <input type="password" name="smtp_pass" class="form-control" autocomplete="new-password"
+                placeholder="{{ '•••••••••••••••• (leave blank to keep saved password)' if smtp_pass_set else '16-character app password, e.g. abcd efgh ijkl mnop' }}">
+              <div class="form-text">Used for both sending (SMTP) and automatic reply/bounce detection (IMAP). Stored locally in .env only.</div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold">SMTP Host</label>
+              <input type="text" name="smtp_host" class="form-control" value="{{ smtp_host }}">
+              <div class="form-text">aashishagency.com is on Google Workspace → smtp.gmail.com is correct.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold">Port</label>
+              <input type="number" name="smtp_port" class="form-control" value="{{ smtp_port }}">
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-save me-1"></i>Save Settings</button>
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="testSmtp()" id="testBtn">
+              <i class="bi bi-plug me-1"></i>Test Connection</button>
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="checkReplies()" id="repliesBtn">
+              <i class="bi bi-arrow-repeat me-1"></i>Check Replies Now</button>
+          </div>
+          <div id="testResult" class="mt-2"></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-broadcast me-1"></i>Open / Click Tracking URL</h6>
+        <form id="urlForm">
+          <label class="form-label small fw-semibold">App Base URL</label>
+          <input type="url" name="app_base_url" class="form-control" value="{{ app_base_url }}">
+          <div class="form-text">
+            Tracking pixels &amp; links in sent emails point here. <strong>localhost only works on this PC</strong> —
+            for real recipients to register opens/clicks this must be a public URL
+            (e.g. an <code>ngrok http 5000</code> tunnel or a deployed server). Sending &amp; reply detection work either way.
+          </div>
+          {% if 'localhost' in app_base_url or '127.0.0.1' in app_base_url %}
+          <div class="alert alert-light border mt-2 mb-0 py-2 small">
+            <i class="bi bi-info-circle me-1 text-warning"></i>
+            Currently <code>{{ app_base_url }}</code> — open/read tracking won’t register from recipients’ devices until this is public.
+            Replies &amp; bounces are still tracked automatically via your inbox (IMAP), independent of this URL.
+          </div>
+          {% endif %}
+          <button type="submit" class="btn btn-primary btn-sm mt-2"><i class="bi bi-save me-1"></i>Save URL</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-database me-1"></i>Lead Data Provider</h6>
+        <p class="mb-1 small">Active provider: <strong class="text-capitalize">{{ provider }}</strong>
+          {% if provider_configured %}<span class="badge bg-success ms-1">key set</span>
+          {% else %}<span class="badge bg-danger ms-1">no key</span>{% endif %}
+        </p>
+        <p class="text-muted small mb-2">Hunter free tier: 50 verified-email credits/month. Switch to Apollo by setting <code>DATA_PROVIDER=apollo</code> in .env (needs a paid Apollo plan).</p>
+        <button class="btn btn-outline-primary btn-sm" onclick="testProvider()" id="provBtn"><i class="bi bi-plug me-1"></i>Test Provider Key</button>
+        <div id="provResult" class="mt-2"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3"><i class="bi bi-magic me-1"></i>How the automation works</h6>
+        <ul class="small text-muted mb-0 ps-3" style="line-height:1.9">
+          <li><strong>Discover</strong> finds Loyalty/Dealer-Loyalty contacts by industry &amp; company size (auto-runs on your schedule).</li>
+          <li><strong>Campaigns</strong> send personalized emails from {{ smtp_user or 'your address' }}, ~1.5s apart to protect deliverability.</li>
+          <li><strong>Sent / Delivered</strong>: delivered = accepted by Gmail with no bounce notice returned.</li>
+          <li><strong>Read</strong>: tracked via an invisible pixel when the recipient opens the email.</li>
+          <li><strong>Replied</strong>: the app checks your inbox every 10 minutes and auto-matches replies to campaigns.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function submitForm(form) {
+  const fd = new FormData(form);
+  const r = await fetch('/settings', {method:'POST', body: fd});
+  const data = await r.json();
+  if (data.success) { showToast('Settings saved'); setTimeout(()=>location.reload(), 900); }
+  else showToast('Save failed', 'danger');
+}
+document.getElementById('smtpForm').addEventListener('submit', e => { e.preventDefault(); submitForm(e.target); });
+document.getElementById('urlForm').addEventListener('submit', e => { e.preventDefault(); submitForm(e.target); });
+
+async function testSmtp() {
+  const btn = document.getElementById('testBtn'), out = document.getElementById('testResult');
+  btn.disabled = true; out.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Connecting to Gmail…</span>';
+  try {
+    const data = await postJSON('/api/smtp/test', {});
+    out.innerHTML = `<div class="alert alert-${data.success?'success':'danger'} py-2 small mb-0">${data.message}</div>`;
+  } catch (e) { out.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Request failed</div>'; }
+  btn.disabled = false;
+}
+
+async function checkReplies() {
+  const btn = document.getElementById('repliesBtn'), out = document.getElementById('testResult');
+  btn.disabled = true; out.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Scanning inbox…</span>';
+  try {
+    const data = await postJSON('/api/replies/check', {});
+    out.innerHTML = data.success
+      ? `<div class="alert alert-success py-2 small mb-0">Inbox scanned (${data.scanned} messages): ${data.replied} new replies, ${data.bounced} bounces recorded.</div>`
+      : `<div class="alert alert-danger py-2 small mb-0">${data.error}</div>`;
+  } catch (e) { out.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Request failed</div>'; }
+  btn.disabled = false;
+}
+
+async function testProvider() {
+  const btn = document.getElementById('provBtn'), out = document.getElementById('provResult');
+  btn.disabled = true; out.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Testing…</span>';
+  try {
+    const data = await postJSON('/api/provider/test', {});
+    out.innerHTML = `<div class="alert alert-${data.success?'success':'danger'} py-2 small mb-0">${data.message}</div>`;
+  } catch (e) { out.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Request failed</div>'; }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}

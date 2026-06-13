@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Search Company{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <h4 class="fw-bold mb-0">Search Company</h4>
+  <p class="text-muted mb-0 small">Find loyalty/CRM decision-makers inside a specific company</p>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Search Parameters</h6>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Data provider</label>
+          <select id="providerSelect" class="form-select form-select-sm">
+            <option value="hunter">Hunter.io — free, real emails</option>
+            <option value="apollo">Apollo.io — paid plan</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Company Name or Domain</label>
+          <input type="text" id="companyName" class="form-control" placeholder="e.g. Tata Motors or tatamotors.com">
+          <span class="text-muted" style="font-size:.72rem">A domain (e.g. mahindra.com) gives the most reliable Hunter results.</span>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Role Keywords <span class="text-muted fw-normal">(comma-separated)</span></label>
+          <input type="text" id="roleTitles" class="form-control" value="Loyalty, CRM, Customer Retention, Dealer, Marketing, Sales">
+          <span class="text-muted" style="font-size:.72rem">Used to rank decision-makers first (Hunter) or as exact titles (Apollo).</span>
+        </div>
+        <div class="form-check form-switch mb-3 p-2 rounded" style="background:#eef2ff" id="mobileOnlyBlock">
+          <input class="form-check-input" type="checkbox" id="requireMobile" checked>
+          <label class="form-check-label small" for="requireMobile">
+            <strong>Only contacts with a mobile number</strong><br>
+            <span class="text-muted" style="font-size:.72rem">
+              <i class="bi bi-phone text-primary"></i>
+              Returns only people whose <strong>mobile is on file in Apollo</strong> (filter is free)
+              and reveals their email (~1 credit each). The actual <strong>mobile number is revealed
+              on demand per lead</strong> (open the lead → “Reveal mobile”, ~8 Apollo credits each).
+            </span>
+          </label>
+        </div>
+        <button class="btn btn-primary w-100" id="searchBtn" onclick="searchCompany()">
+          <i class="bi bi-building-search me-1"></i>Find People
+        </button>
+      </div>
+    </div>
+
+    <div class="card mt-3" id="companyCard" style="display:none">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">Company Info</h6>
+        <div id="companyInfo"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div id="emptyState" class="text-center py-5 text-muted">
+          <i class="bi bi-building fs-1 d-block mb-2 opacity-25"></i>
+          Enter a company name to find relevant contacts
+        </div>
+        <div id="loadingState" class="text-center py-5" style="display:none">
+          <div class="spinner-border text-primary mb-2"></div>
+          <p class="text-muted">Searching for contacts…</p>
+        </div>
+        <div id="resultsArea" style="display:none">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="fw-bold mb-0">People Found <span class="badge bg-primary rounded-pill ms-1" id="peopleCount">0</span></h6>
+            <button class="btn btn-sm btn-success" onclick="saveAllPeople()"><i class="bi bi-plus-circle me-1"></i>Save All</button>
+          </div>
+          <div id="peopleCards"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let foundPeople = [];
+
+async function searchCompany() {
+  const company = document.getElementById('companyName').value.trim();
+  if (!company) { showToast('Enter a company name', 'warning'); return; }
+  const titles = document.getElementById('roleTitles').value;
+  const provider = document.getElementById('providerSelect').value;
+  const require_mobile = document.getElementById('requireMobile').checked;
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsArea').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('searchBtn').disabled = true;
+
+  try {
+    const data = await postJSON('/leads/search-company', {company_name: company, titles, provider, require_mobile});
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('searchBtn').disabled = false;
+    if (data.success) {
+      foundPeople = data.people || [];
+      renderPeople(foundPeople);
+      if (data.note) showToast(data.note, foundPeople.length ? 'info' : 'warning');
+    } else {
+      showToast(data.error || 'Search failed', 'danger');
+      document.getElementById('emptyState').style.display = 'block';
+    }
+  } catch(e) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('searchBtn').disabled = false;
+    showToast('Error: ' + e.message, 'danger');
+    document.getElementById('emptyState').style.display = 'block';
+  }
+}
+
+function renderPeople(people) {
+  document.getElementById('peopleCount').textContent = people.length;
+  const container = document.getElementById('peopleCards');
+  container.innerHTML = '';
+  if (!people.length) {
+    container.innerHTML = '<div class="text-center py-4 text-muted">No relevant contacts found. Try different role keywords.</div>';
+    document.getElementById('resultsArea').style.display = 'block';
+    return;
+  }
+  people.forEach((p, i) => {
+    container.insertAdjacentHTML('beforeend', `
+      <div class="border rounded p-3 mb-2 d-flex justify-content-between align-items-start">
+        <div class="d-flex gap-3">
+          <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0" style="width:42px;height:42px;font-size:1.1rem;font-weight:700">
+            ${(p.name||'?')[0].toUpperCase()}
+          </div>
+          <div>
+            <strong>${p.name}</strong>
+            <p class="mb-0 text-muted small">${p.title}</p>
+            <p class="mb-0 small"><i class="bi bi-building me-1 text-muted"></i>${p.company}</p>
+            <div class="mt-1 d-flex gap-2 flex-wrap">
+              ${p.email ? `<span class="small"><i class="bi bi-envelope me-1 text-primary"></i>${p.email}</span>` : ''}
+              ${p.mobile ? `<span class="small fw-semibold"><i class="bi bi-phone me-1 text-success"></i>${p.mobile} <span class="badge bg-success-subtle text-success border border-success" style="font-size:.62rem">mobile</span></span>`
+                : (p.has_direct_phone ? `<span class="small text-muted"><i class="bi bi-phone me-1 text-success"></i><span class="badge bg-success-subtle text-success border border-success" style="font-size:.62rem">mobile on file</span> <span style="font-size:.66rem">reveal pending</span></span>`
+                : (p.phone ? `<span class="small"><i class="bi bi-telephone me-1 text-success"></i>${p.phone}</span>` : ''))}
+              ${p.city ? `<span class="small text-muted"><i class="bi bi-geo-alt me-1"></i>${p.city}</span>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-1 flex-shrink-0">
+          ${p.linkedin_url ? `<a href="${p.linkedin_url}" target="_blank" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-linkedin"></i></a>` : ''}
+          <button class="btn btn-sm btn-success py-0 px-2" onclick="savePerson(${i})"><i class="bi bi-plus"></i> Save</button>
+        </div>
+      </div>`);
+  });
+  document.getElementById('resultsArea').style.display = 'block';
+}
+
+async function savePerson(idx) {
+  const p = foundPeople[idx];
+  const data = await postJSON('/leads/add-from-search', p);
+  if (data.success) showToast(`${p.name} saved to leads!`);
+  else if (data.error === 'Lead already exists') showToast(`${p.name} already in leads`, 'warning');
+  else showToast(data.error, 'danger');
+}
+
+async function saveAllPeople() {
+  let saved = 0;
+  for (let i = 0; i < foundPeople.length; i++) {
+    const data = await postJSON('/leads/add-from-search', foundPeople[i]);
+    if (data.success) saved++;
+  }
+  showToast(`${saved} of ${foundPeople.length} leads saved!`);
+  setTimeout(() => location.href = '/leads', 1500);
+}
+
+document.getElementById('companyName').addEventListener('keydown', e => { if (e.key==='Enter') searchCompany(); });
+
+// The mobile-only filter only applies to Apollo (Hunter has no phone data).
+function syncMobileBlock(){
+  const isApollo = document.getElementById('providerSelect').value === 'apollo';
+  const blk = document.getElementById('mobileOnlyBlock');
+  blk.style.opacity = isApollo ? '1' : '.5';
+  document.getElementById('requireMobile').disabled = !isApollo;
+}
+document.getElementById('providerSelect').addEventListener('change', syncMobileBlock);
+
+// Default the provider dropdown to the .env-configured provider.
+fetch('/api/provider/status').then(r=>r.json()).then(d=>{
+  document.getElementById('providerSelect').value = d.default || 'hunter';
+  syncMobileBlock();
+}).catch(syncMobileBlock);
+</script>
+{% endblock %}

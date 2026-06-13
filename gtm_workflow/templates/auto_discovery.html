@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Auto Discovery{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0">Auto Lead Discovery</h4>
+    <p class="text-muted mb-0 small">Continuously pull fresh leads from Apollo.io on a schedule</p>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="runNow()">
+    <i class="bi bi-play-circle me-1"></i>Run Now
+  </button>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-body">
+        <form id="configForm">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="fw-bold mb-0">Discovery Settings</h6>
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="enabledSwitch" name="enabled" {% if config.enabled %}checked{% endif %}>
+              <label class="form-check-label small" for="enabledSwitch">
+                {% if config.enabled %}<span class="text-success fw-semibold">Enabled</span>{% else %}<span class="text-muted">Disabled</span>{% endif %}
+              </label>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Target Job Titles <span class="text-muted fw-normal">(comma-separated)</span></label>
+            <textarea name="job_titles" class="form-control form-control-sm" rows="3">{{ config.job_titles }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Industries</label>
+            <textarea name="industries" class="form-control form-control-sm" rows="2">{{ config.industries }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Company Sizes</label>
+            <input type="text" name="company_sizes" class="form-control form-control-sm" value="{{ config.company_sizes }}">
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Country</label>
+              <input type="text" name="country" class="form-control form-control-sm" value="{{ config.country }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Leads per Run</label>
+              <input type="number" name="leads_per_run" class="form-control form-control-sm" value="{{ config.leads_per_run }}" min="5" max="100">
+            </div>
+          </div>
+          <div class="mb-3 mt-2">
+            <label class="form-label small fw-semibold">Run Every</label>
+            <select name="run_interval_hours" class="form-select form-select-sm">
+              {% for h, label in [(6,'Every 6 hours'),(12,'Every 12 hours'),(24,'Once a day'),(48,'Every 2 days'),(168,'Once a week')] %}
+              <option value="{{ h }}" {% if config.run_interval_hours == h %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Save Configuration</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Discovery Stats</h6>
+        <div class="row g-2 text-center">
+          <div class="col-6">
+            <div class="rounded p-3" style="background:#f4f6fb">
+              <h3 class="fw-bold mb-0 text-primary">{{ config.total_leads_fetched }}</h3>
+              <p class="text-muted mb-0 small">Total Leads Fetched</p>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="rounded p-3" style="background:#f4f6fb">
+              <h3 class="fw-bold mb-0 {% if config.enabled %}text-success{% else %}text-muted{% endif %}">
+                {% if config.enabled %}ON{% else %}OFF{% endif %}
+              </h3>
+              <p class="text-muted mb-0 small">Auto Discovery</p>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 p-3 rounded" style="background:#f8f9fa">
+          <p class="mb-1 small"><strong>Last Run:</strong>
+            {% if config.last_run_at %}{{ config.last_run_at.strftime('%d %b %Y at %H:%M UTC') }}
+            {% else %}<span class="text-muted">Never</span>{% endif %}
+          </p>
+          <p class="mb-0 small"><strong>Interval:</strong> Every {{ config.run_interval_hours }} hours</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-2">How it works</h6>
+        <ol class="small text-muted ps-3 mb-0">
+          <li class="mb-1">Configure target job titles and industries</li>
+          <li class="mb-1">Enable auto discovery and set run interval</li>
+          <li class="mb-1">Click <strong>Run Now</strong> for an immediate pull, or let it run on schedule</li>
+          <li class="mb-1">New leads are de-duplicated and saved automatically</li>
+          <li>Add leads to campaigns from the <a href="/leads">Leads page</a></li>
+        </ol>
+        <hr class="my-2">
+        <p class="small text-muted mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          Apollo free plan: 50 credits/month. Upgrade for more volume.
+          Verified emails cost 1 credit each.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Run Now Result -->
+<div id="runResult" class="alert mt-3" style="display:none"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('configForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  const resp = await fetch('/auto-discovery', {method:'POST', body: fd});
+  const data = await resp.json();
+  if (data.success) showToast('Configuration saved!');
+  else showToast(data.error || 'Save failed', 'danger');
+});
+
+async function runNow() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Running…';
+  const data = await postJSON('/auto-discovery/run-now', {});
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-play-circle me-1"></i>Run Now';
+  const el = document.getElementById('runResult');
+  if (data.success) {
+    el.className = 'alert alert-success mt-3';
+    el.innerHTML = `<i class="bi bi-check-circle me-1"></i><strong>${data.saved} new leads saved</strong> (${data.skipped} duplicates skipped). <a href="/leads">View leads →</a>`;
+  } else {
+    el.className = 'alert alert-danger mt-3';
+    el.innerHTML = `<i class="bi bi-x-circle me-1"></i>Error: ${data.error}`;
+  }
+  el.style.display = 'block';
+}
+</script>
+{% endblock %}
