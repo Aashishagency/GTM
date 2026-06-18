@@ -36,26 +36,30 @@ services:
         value: imap.gmail.com
       - key: IMAP_PORT
         value: "993"
-      # ── Secrets: set these in the Render dashboard (Environment tab) ──
+      # ════════ SET THESE IN THE RENDER DASHBOARD (Environment tab) ════════
+      # REQUIRED — the login password (share it only with info@ and sujit@):
+      - key: APP_PASSWORD
+        sync: false
+      # For finding leads:
       - key: HUNTER_API_KEY
         sync: false
       - key: APOLLO_API_KEY
         sync: false
-      - key: SMTP_PASS              # Google App Password for info@aashishagency.com
+      # For sending campaigns — Google App Password for info@aashishagency.com:
+      - key: SMTP_PASS
         sync: false
-      # "Sign in with Google" restricted to one address (preferred login)
+      # ── OPTIONAL ──
+      # Want "Sign in with Google" instead of the password? Set these two and the
+      # app switches to Google login automatically (allowlist below). Otherwise leave blank.
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: ALLOWED_GOOGLE_EMAILS
         value: info@aashishagency.com,sujit@aashishagency.com
-      # Password login — fallback used only while Google isn't configured
-      - key: APP_USERNAME           # login username for the app UI
-        sync: false
-      - key: APP_PASSWORD           # login password for the app UI
-        sync: false
-      - key: APP_BASE_URL           # set to https://<your-service>.onrender.com after 1st deploy
+      # Only needed to reveal Apollo mobile numbers (the async webhook). Set to your
+      # https://<service>.onrender.com URL. Everything else auto-detects the URL.
+      - key: APP_BASE_URL
         sync: false
 
 databases:

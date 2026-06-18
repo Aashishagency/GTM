@@ -12,19 +12,15 @@ This puts the app on a stable, always-on HTTPS URL so that:
 ---
 
 ## 0. One-time: put the code on GitHub
-From `C:\Users\User\Desktop\claude`:
-```
-git init
-git add .
-git commit -m "GTM workflow app"
-```
-Create an empty repo on github.com, then:
+The repo is already initialized and committed locally. Create an empty repo on
+github.com, then from `C:\Users\User\Desktop\claude`:
 ```
 git remote add origin https://github.com/<you>/<repo>.git
 git branch -M main
 git push -u origin main
 ```
-`.gitignore` already keeps `.env` and the local `*.db` out of git — your secrets are **not** pushed.
+`.gitignore` already keeps `.env`, the local `*.db`, and the tunnel binary out of git —
+your secrets are **not** pushed.
 
 ## 1. Create the service on Render
 1. Go to https://render.com → sign up (free) → **New ➜ Blueprint**.
@@ -32,19 +28,31 @@ git push -u origin main
    **free Postgres database**. Click **Apply**.
 3. It builds and deploys. `DATABASE_URL` is wired to Postgres automatically.
 
-## 2. Fill in the secrets (Render ➜ your service ➜ Environment)
+## 2. Create the Google sign-in client (for "Login with Google")
+1. https://console.cloud.google.com → create/select a project.
+2. **APIs & Services → OAuth consent screen** → External → fill app name + your email → Save.
+   (You can leave it in "Testing"; add info@ and sujit@ as test users.)
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID → Web application.**
+4. **Authorized redirect URIs** → add (you'll know the exact host after step 3 of deploy):
+   `https://<your-app>.onrender.com/auth/google/callback`
+5. Copy the **Client ID** and **Client secret**.
+
+## 3. Fill in the secrets (Render ➜ your service ➜ Environment)
 Set these (the blueprint marks them "sync:false" so they're blank until you add them):
 
 | Key | Value |
 |-----|-------|
+| `GOOGLE_CLIENT_ID` | from the Google OAuth client (step 2) |
+| `GOOGLE_CLIENT_SECRET` | from the Google OAuth client (step 2) |
 | `HUNTER_API_KEY` | your Hunter key |
 | `APOLLO_API_KEY` | your Apollo key |
 | `SMTP_PASS` | Google **App Password** for info@aashishagency.com |
-| `APP_USERNAME` | a username you choose (the login) |
-| `APP_PASSWORD` | a strong password you choose (the login) |
-| `APP_BASE_URL` | leave blank for now — set in step 4 |
+| `APP_BASE_URL` | your `https://<your-app>.onrender.com` URL |
 
-(`SMTP_USER`, `FROM_NAME`, `DATA_PROVIDER`, etc. are already set by the blueprint.)
+`ALLOWED_GOOGLE_EMAILS` is already set to `info@aashishagency.com,sujit@aashishagency.com`
+by the blueprint — anyone can click "Sign in with Google", but only those two get in.
+(`SMTP_USER`, `FROM_NAME`, `DATA_PROVIDER`, etc. are already set too.) Leave
+`APP_USERNAME`/`APP_PASSWORD` blank so Google sign-in is the login.
 
 ## 3. First deploy finishes → note your URL
 It'll look like `https://gtm-workflow-xxxx.onrender.com`. Open it — your browser will

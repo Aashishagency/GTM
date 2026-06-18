@@ -38,10 +38,25 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 db.init_app(app)
 
+# Behind Render's proxy, trust X-Forwarded-* so request.url_root is the real public
+# https URL — lets us auto-detect the base URL instead of hardcoding APP_BASE_URL.
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 
 def _base_url() -> str:
-    # Read at call time so Settings-page changes apply without a restart.
-    return os.getenv("APP_BASE_URL", "http://localhost:5000")
+    """Public base URL. Uses APP_BASE_URL if set to a real public URL, otherwise
+    auto-detects it from the incoming request (so nothing needs configuring on the host)."""
+    explicit = (os.getenv("APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit and "localhost" not in explicit and "127.0.0.1" not in explicit:
+        return explicit
+    try:
+        from flask import request, has_request_context
+        if has_request_context():
+            return request.url_root.rstrip("/")
+    except Exception:
+        pass
+    return explicit or "http://localhost:5000"
 
 
 # ─── ACCESS CONTROL ───────────────────────────────────────────────────────────
@@ -66,8 +81,12 @@ def _google_login_enabled() -> bool:
     return bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"))
 
 
-def _basic_login_enabled() -> bool:
-    return bool(os.getenv("APP_USERNAME") and os.getenv("APP_PASSWORD"))
+def _password_login_enabled() -> bool:
+    return bool(os.getenv("APP_PASSWORD"))
+
+
+def _login_required() -> bool:
+    return _google_login_enabled() or _password_login_enabled()
 
 
 def allowed_login_emails() -> set:
@@ -83,34 +102,41 @@ def _access_control():
     path = request.path
     if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
         return
-
-    # Mode 1: Google sign-in (restricted to the one allowed address).
-    if _google_login_enabled():
-        if session.get("user_email"):
+    if not _login_required():
+        # No login configured. Fine on localhost; on a public host refuse rather
+        # than expose the app, so a missing APP_PASSWORD can't leave it wide open.
+        host = (request.host or "").split(":")[0]
+        if host in ("localhost", "127.0.0.1"):
             return
-        if any(path.startswith(p) for p in _LOGIN_PREFIXES):
-            return
-        return redirect(url_for("login", next=path))
-
-    # Mode 2: basic-auth fallback.
-    if _basic_login_enabled():
-        auth = request.authorization
-        if (not auth or auth.username != os.getenv("APP_USERNAME")
-                or not _secrets.compare_digest(auth.password or "", os.getenv("APP_PASSWORD", ""))):
-            return Response("Login required.", 401,
-                            {"WWW-Authenticate": 'Basic realm="GTM Workflow"'})
+        return Response("This app needs a login. Set APP_PASSWORD (or Google sign-in) "
+                        "in the host environment to enable access.", 503)
+    if session.get("user_email"):
         return
-    # Mode 3: open (local dev).
+    if any(path.startswith(p) for p in _LOGIN_PREFIXES):
+        return
+    return redirect(url_for("login", next=path))
 
 
-@app.route("/login")
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if not _google_login_enabled():
-        return redirect("/")
     if session.get("user_email"):
         return redirect("/")
-    return render_template("login.html", allowed=", ".join(sorted(allowed_login_emails())),
-                           error=request.args.get("error"))
+    if not _login_required():
+        return redirect("/")
+    error = request.args.get("error")
+    nxt = request.values.get("next", "/")
+    if not nxt.startswith("/"):
+        nxt = "/"
+    if request.method == "POST" and _password_login_enabled():
+        if _secrets.compare_digest(request.form.get("password", ""), os.getenv("APP_PASSWORD", "")):
+            session["user_email"] = os.getenv("APP_USERNAME") or "team"
+            return redirect(nxt)
+        error = "Incorrect password. Please try again."
+    return render_template("login.html",
+                           google=_google_login_enabled(),
+                           password=_password_login_enabled(),
+                           allowed=", ".join(sorted(allowed_login_emails())),
+                           error=error, next=nxt)
 
 
 @app.route("/auth/google")
@@ -854,6 +880,10 @@ def send_campaign(campaign_id):
     campaign.status = "active"
     db.session.commit()
 
+    # Capture the public base URL NOW (we're in a request, so it auto-detects);
+    # the background thread has no request context to derive it from.
+    base_url = _base_url()
+
     # Pass only IDs into the thread; re-query inside the thread's own session to
     # avoid DetachedInstanceError / cross-session writes that silently don't persist.
     def _send_all(cid, contact_ids):
@@ -879,7 +909,7 @@ def send_campaign(campaign_id):
                     to_email=lead.email, to_name=lead.name,
                     subject=subj, body_html=body,
                     body_text=build_plain_text(body),
-                    tracking_id=cc.tracking_id, base_url=_base_url(),
+                    tracking_id=cc.tracking_id, base_url=base_url,
                 )
                 if ok:
                     cc.status = "sent"

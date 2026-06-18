@@ -29,15 +29,24 @@
     <div class="alert alert-danger py-2 small text-start">{{ error }}</div>
     {% endif %}
 
-    <a class="gbtn" href="/auth/google">
-      <img class="gicon" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
-      Sign in with Google
-    </a>
+    {% if password %}
+    <form method="POST" action="/login?next={{ next|urlencode }}">
+      <input type="password" name="password" class="form-control mb-2" placeholder="Password" autofocus required>
+      <button type="submit" class="btn btn-primary w-100">Sign in</button>
+    </form>
+    {% endif %}
 
-    <p class="text-muted mt-4 mb-0" style="font-size:.78rem">
-      <i class="bi bi-shield-lock me-1"></i>
-      Access is restricted to <strong>{{ allowed }}</strong>.
-    </p>
+    {% if google %}
+      {% if password %}<div class="text-muted my-3" style="font-size:.8rem">or</div>{% endif %}
+      <a class="gbtn" href="/auth/google">
+        <img class="gicon" src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="">
+        Sign in with Google
+      </a>
+      <p class="text-muted mt-4 mb-0" style="font-size:.78rem">
+        <i class="bi bi-shield-lock me-1"></i>
+        Google access is restricted to <strong>{{ allowed }}</strong>.
+      </p>
+    {% endif %}
   </div>
 </body>
 </html>
