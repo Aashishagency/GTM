@@ -72,6 +72,39 @@ class CampaignContact(db.Model):
     personalized_body = db.Column(db.Text)
 
 
+class ContactList(db.Model):
+    """A named, downloadable list of contacts (stored in the DB so it survives on
+    Render's ephemeral filesystem; the .xlsx is generated on download)."""
+    __tablename__ = "contact_lists"
+    id = db.Column(db.String(36), primary_key=True, default=generate_uuid)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    items = db.relationship("ContactListItem", backref="list", lazy=True,
+                            cascade="all, delete-orphan")
+
+
+class ContactListItem(db.Model):
+    __tablename__ = "contact_list_items"
+    id = db.Column(db.String(36), primary_key=True, default=generate_uuid)
+    list_id = db.Column(db.String(36), db.ForeignKey("contact_lists.id"), nullable=False)
+    dedup_key = db.Column(db.String(300))  # email/apollo_id/linkedin/name+company identity
+    company = db.Column(db.String(200))
+    name = db.Column(db.String(200))
+    title = db.Column(db.String(200))
+    mobile = db.Column(db.String(50))
+    email = db.Column(db.String(200))
+    linkedin_url = db.Column(db.String(500))
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    industry = db.Column(db.String(200))
+    company_size = db.Column(db.String(50))
+    country = db.Column(db.String(100))
+    source = db.Column(db.String(50))
+    apollo_id = db.Column(db.String(100))
+    saved_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class AutoDiscoveryConfig(db.Model):
     __tablename__ = "auto_discovery_config"
     id = db.Column(db.Integer, primary_key=True)

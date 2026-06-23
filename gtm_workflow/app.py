@@ -7,6 +7,7 @@ from database import db, Lead, Campaign, CampaignContact, AutoDiscoveryConfig
 import providers
 from email_client import send_email, personalize, build_plain_text, smtp_configured, test_smtp_login
 import reply_tracker
+import contact_lists
 import io, csv
 
 # Anchor .env and the SQLite DB to THIS file's folder, so the app behaves the same
@@ -460,7 +461,9 @@ def enrich_lead(lead_id):
     """Reveal a single lead's EMAIL (consumes ~1 Apollo credit)."""
     lead = Lead.query.get_or_404(lead_id)
     try:
-        ok = _enrich_lead_obj(lead)
+        # Apollo-sourced leads must enrich via Apollo (by apollo_id), not the default
+        # provider — otherwise a Hunter default would mis-handle them.
+        ok = _enrich_lead_obj(lead, provider=("apollo" if lead.apollo_id else None))
         db.session.commit()
         return jsonify({"success": True, "enriched": ok, "email": lead.email,
                         "phone": lead.phone, "email_status": lead.email_status})
@@ -479,12 +482,23 @@ def reveal_phone(lead_id):
                         "error": "Mobile reveal needs a public APP_BASE_URL so Apollo can "
                                  "deliver the number. Set it in Settings (or deploy)."}), 400
     try:
-        _enrich_lead_obj(lead, reveal_phone=True)  # triggers async webhook delivery
+        # Phone reveal is Apollo-only and matched by apollo_id; force Apollo so the
+        # default provider (Hunter) can't hijack it (Hunter has no phone reveal).
+        _enrich_lead_obj(lead, provider="apollo", reveal_phone=True)  # async webhook delivery
         db.session.commit()
         return jsonify({"success": True, "pending": not bool(lead.phone),
                         "phone": lead.phone, "email": lead.email})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/leads/<lead_id>/phone", methods=["GET"])
+def lead_phone_status(lead_id):
+    """Poll a lead's mobile — Apollo delivers it async to /apollo/phone-webhook a few
+    seconds after a reveal, so the Find Leads page polls this to update the row."""
+    lead = Lead.query.get_or_404(lead_id)
+    return jsonify({"phone": lead.phone or "", "enriched": bool(lead.enriched),
+                    "has_mobile_on_file": bool(lead.has_mobile_on_file)})
 
 
 @app.route("/leads/enrich-bulk", methods=["POST"])
@@ -653,6 +667,162 @@ def export_leads():
                     headers={"Content-Disposition": "attachment;filename=leads_export.csv"})
 
 
+# ─── FIND LEADS (simple unified Apollo finder) ────────────────────────────────
+# One page, one flow: choose "By Company Name" OR "By Demographics"
+# (location / position / company size), see company+name+mobile+email+LinkedIn,
+# save the ones you want, then send them a mailer. Apollo-powered.
+
+def _as_list(val):
+    """Accept either a comma-string or an already-split list; return a clean list."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x).strip() for x in val if str(x).strip()]
+    return [s.strip() for s in str(val).split(",") if s.strip()]
+
+
+@app.route("/find")
+def find_leads():
+    return render_template("find.html")
+
+
+@app.route("/find/search", methods=["POST"])
+def find_search():
+    data = request.json or {}
+    mode = (data.get("mode") or "demographic").strip().lower()
+    try:
+        people = providers.find_people(
+            mode=mode,
+            company_name=(data.get("company_name") or "").strip() or None,
+            locations=_as_list(data.get("locations")) or None,
+            titles=_as_list(data.get("titles")) or None,
+            sizes=_as_list(data.get("sizes")) or None,
+            seniorities=_as_list(data.get("seniorities")) or None,
+            country=(data.get("country") or "India").strip(),
+            per_page=int(data.get("per_page", 25)),
+            reveal_emails=bool(data.get("reveal_emails", True)),
+            max_reveal=int(data.get("max_reveal", 10)),
+            require_mobile=bool(data.get("require_mobile", False)),
+        )
+        people = [p for p in people if p.get("name")]
+        with_email = sum(1 for p in people if p.get("email"))
+        note = ""
+        if not people:
+            note = ("No people matched. Try a broader position, fewer size bands, "
+                    "or a wider location.")
+        return jsonify({"success": True, "people": people, "total": len(people),
+                        "with_email": with_email, "note": note})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/find/save", methods=["POST"])
+def find_save():
+    """Persist a batch of found people (de-duped by apollo_id/email) and return the
+    resulting lead IDs — so the page can then open a mailer pre-loaded with them."""
+    people = (request.json or {}).get("people", [])
+    saved, dup = 0, 0
+    lead_ids = []
+    for p in people:
+        if not p.get("name"):
+            continue
+        existing = None
+        if p.get("apollo_id"):
+            existing = Lead.query.filter_by(apollo_id=p["apollo_id"]).first()
+        elif p.get("email"):
+            existing = Lead.query.filter_by(email=p["email"]).first()
+        if existing:
+            dup += 1
+            lead_ids.append(existing.id)
+            continue
+        lead = Lead(
+            apollo_id=p.get("apollo_id"),
+            name=p.get("name", ""), title=p.get("title", ""),
+            company=p.get("company", ""), email=p.get("email", ""),
+            phone=p.get("phone", "") or p.get("mobile", ""),
+            linkedin_url=p.get("linkedin_url", ""),
+            city=p.get("city", ""), state=p.get("state", ""),
+            country=p.get("country", "India"), industry=p.get("industry", ""),
+            company_size=str(p.get("company_size", "")), website=p.get("website", ""),
+            email_status=p.get("email_status", "unknown"),
+            enriched=bool(p.get("enriched")),
+            has_mobile_on_file=bool(p.get("has_direct_phone") or p.get("has_mobile")),
+            source="apollo",
+        )
+        db.session.add(lead)
+        db.session.flush()
+        lead_ids.append(lead.id)
+        saved += 1
+    db.session.commit()
+    return jsonify({"success": True, "saved": saved, "duplicates": dup, "lead_ids": lead_ids})
+
+
+# ─── EXCEL EXPORT & SAVED CONTACT LISTS ───────────────────────────────────────
+# Download the revealed contacts as .xlsx, or save them into a named list you can
+# append to later. Each list is a real .xlsx file under gtm_workflow/lists/.
+
+def _slugify_filename(name: str) -> str:
+    base = contact_lists.safe_name(name).replace(" ", "_")
+    return (base or "contacts") + ".xlsx"
+
+
+@app.route("/find/export-xlsx", methods=["POST"])
+def find_export_xlsx():
+    """Stream the selected/revealed contacts straight back as an .xlsx download."""
+    data = request.json or {}
+    people = data.get("people", [])
+    fname = _slugify_filename(data.get("filename") or "apollo_contacts")
+    buf = contact_lists.to_xlsx_bytes(people, sheet_title="Contacts")
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/lists/save", methods=["POST"])
+def lists_save():
+    """Create a new list or append to an existing one (de-duped). JSON:
+    {name, append: bool, people: [...]}. Returns counts + a download URL."""
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "Give the list a name."}), 400
+    people = data.get("people", [])
+    if not people:
+        return jsonify({"success": False, "error": "No contacts selected to save."}), 400
+    try:
+        res = contact_lists.save_list(name, people, append=bool(data.get("append")))
+        res["success"] = True
+        res["download_url"] = url_for("lists_download", name=res["name"])
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/lists")
+def api_lists():
+    return jsonify({"lists": contact_lists.available_lists()})
+
+
+@app.route("/lists")
+def lists_page():
+    return render_template("lists.html", lists=contact_lists.available_lists())
+
+
+@app.route("/lists/<name>/download")
+def lists_download(name):
+    buf = contact_lists.list_xlsx_bytes(name)
+    if buf is None:
+        return Response("List not found.", 404)
+    return send_file(buf, as_attachment=True,
+                     download_name=_slugify_filename(name),
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/lists/<name>/delete", methods=["POST"])
+def lists_delete(name):
+    ok = contact_lists.delete_list(name)
+    return jsonify({"success": ok})
+
+
 # ─── AUTO DISCOVERY CONFIG ────────────────────────────────────────────────────
 
 @app.route("/auto-discovery", methods=["GET", "POST"])
@@ -794,7 +964,10 @@ def campaigns_list():
 def new_campaign():
     if request.method == "GET":
         leads = Lead.query.filter(Lead.email.isnot(None), Lead.email != "").order_by(Lead.created_at.desc()).all()
+        # Pre-check recipients passed from Find Leads' "Save + Create Mailer".
+        added_ids = {x for x in request.args.get("leads", "").split(",") if x}
         return render_template("campaign_editor.html", campaign=None, leads=leads,
+                               added_ids=added_ids,
                                default_from_name=os.getenv("FROM_NAME", ""),
                                smtp_user=os.getenv("SMTP_USER", ""), smtp_ok=smtp_configured())
 
@@ -1110,6 +1283,18 @@ def provider_status():
     st = providers.provider_status(prov)
     return jsonify({"configured": st["configured"], "provider": st["provider"],
                     "default": providers.active_provider()})
+
+
+@app.route("/api/apollo/credits")
+def apollo_credits():
+    """Live Apollo credit balances (email/people, mobile, export, …). Spends nothing."""
+    import apollo_client as apollo
+    if not apollo.get_api_key():
+        return jsonify({"success": False, "error": "Apollo API key not configured."}), 400
+    try:
+        return jsonify({"success": True, **apollo.credit_summary()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/apollo/test", methods=["POST"])

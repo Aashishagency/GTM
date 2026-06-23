@@ -38,9 +38,11 @@
     <div class="nav-section">Overview</div>
     <a class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}" href="/"><i class="bi bi-grid-1x2"></i> Dashboard</a>
     <div class="nav-section">Leads</div>
+    <a class="nav-link {% if request.endpoint=='find_leads' %}active{% endif %}" href="/find"><i class="bi bi-stars"></i> Find Leads</a>
     <a class="nav-link {% if request.endpoint=='leads_list' %}active{% endif %}" href="/leads"><i class="bi bi-people"></i> All Leads</a>
     <a class="nav-link {% if request.endpoint=='discover_leads' %}active{% endif %}" href="/leads/discover"><i class="bi bi-search"></i> Discover Leads</a>
     <a class="nav-link {% if request.endpoint=='search_company' %}active{% endif %}" href="/leads/search-company"><i class="bi bi-building"></i> Search Company</a>
+    <a class="nav-link {% if request.endpoint=='lists_page' %}active{% endif %}" href="/lists"><i class="bi bi-file-earmark-spreadsheet"></i> Contact Lists</a>
     <a class="nav-link {% if request.endpoint=='auto_discovery' %}active{% endif %}" href="/auto-discovery"><i class="bi bi-robot"></i> Auto Discovery</a>
     <div class="nav-section">Campaigns</div>
     <a class="nav-link {% if request.endpoint=='campaigns_list' %}active{% endif %}" href="/campaigns"><i class="bi bi-envelope-paper"></i> All Campaigns</a>

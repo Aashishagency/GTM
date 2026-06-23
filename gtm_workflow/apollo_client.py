@@ -108,14 +108,19 @@ def search_people(
     page: int = 1,
     per_page: int = 25,
     keywords: str = None,
+    locations: list[str] = None,
 ) -> dict:
     """People Search via the credit-free api_search endpoint.
-    NOTE: returns NO emails/phones — use enrich_person() to unlock them."""
+    NOTE: returns NO emails/phones — use enrich_person() to unlock them.
+
+    `locations` (city/state/country strings like 'Mumbai' or 'Maharashtra, India')
+    takes precedence over `country`, so the demographic search can target a place."""
+    person_locations = locations if locations else ([country] if country else None)
     payload = {
         "page": page,
         "per_page": min(per_page, 100),
-        "person_titles": job_titles,
-        "person_locations": [country] if country else None,
+        "person_titles": job_titles or None,
+        "person_locations": person_locations,
     }
     if industries:
         payload["q_organization_keyword_tags"] = industries
@@ -266,6 +271,46 @@ def test_api_key() -> tuple[bool, str]:
         return False, msg
     except Exception as e:
         return False, f"Unexpected error: {e}"
+
+
+# Apollo credit buckets, in the order we want to show them. (key, label, what it pays for)
+_CREDIT_TYPES = [
+    ("lead_credit",          "Email / People credits", "Revealing emails (people search & enrichment)"),
+    ("direct_dial_credit",   "Mobile number credits",  "Revealing mobile / direct-dial numbers"),
+    ("export_credit",        "Export credits",         "Exporting contacts out of Apollo"),
+    ("conversation_credit",  "Conversation credits",   "Conversations / sequences"),
+    ("dialer",               "Dialer minutes",         "Apollo dialer usage"),
+    ("ai_credit",            "AI credits",             "Apollo AI features"),
+    ("inbound_website_visitor_credit", "Website visitor credits", "Website visitor identification"),
+]
+
+
+def get_credit_usage() -> dict:
+    """Raw Apollo credit balances. POST /usage_stats/credit_usage_stats (spends nothing)."""
+    data = _post("usage_stats/credit_usage_stats", {}, action="Apollo credit usage")
+    return data.get("credit_usage_stats") or {}
+
+
+def credit_summary() -> dict:
+    """Friendly, UI-ready view of the account's credit balances. Always includes the
+    email + mobile buckets; other buckets only when the plan grants them (limit > 0)."""
+    raw = get_credit_usage()
+    items = []
+    for key, label, desc in _CREDIT_TYPES:
+        v = raw.get(key)
+        if not isinstance(v, dict):
+            continue
+        limit = int(v.get("limit") or 0)
+        consumed = int(v.get("consumed") or 0)
+        left = v.get("left_over")
+        left = int(left) if left is not None else max(0, limit - consumed)
+        if key not in ("lead_credit", "direct_dial_credit") and limit <= 0:
+            continue  # hide buckets the plan doesn't include
+        pct_used = round(consumed / limit * 100) if limit else (100 if consumed else 0)
+        items.append({"key": key, "label": label, "desc": desc, "limit": limit,
+                      "consumed": consumed, "left": left, "pct_used": pct_used,
+                      "low": limit > 0 and left <= max(1, round(limit * 0.1))})
+    return {"items": items}
 
 
 def is_email_locked(email: str) -> bool:

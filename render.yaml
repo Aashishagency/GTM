@@ -4,7 +4,7 @@
 # secrets (API keys, SMTP password, login) in the Render dashboard.
 services:
   - type: web
-    name: gtm-workflow
+    name: aashish-gtm
     runtime: python
     rootDir: gtm_workflow
     plan: free

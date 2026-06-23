@@ -11,16 +11,10 @@ This puts the app on a stable, always-on HTTPS URL so that:
 
 ---
 
-## 0. One-time: put the code on GitHub
-The repo is already initialized and committed locally. Create an empty repo on
-github.com, then from `C:\Users\User\Desktop\claude`:
-```
-git remote add origin https://github.com/<you>/<repo>.git
-git branch -M main
-git push -u origin main
-```
-`.gitignore` already keeps `.env`, the local `*.db`, and the tunnel binary out of git —
-your secrets are **not** pushed.
+## 0. One-time: put the code on GitHub  ✅ already done
+The code lives at **https://github.com/Aashishagency/GTM** (branch `main`) and is kept
+up to date. `.gitignore` keeps `.env`, the local `*.db`, and the tunnel binary out of git,
+so your secrets are **not** pushed. Nothing to do here unless you're starting a new repo.
 
 ## 1. Create the service on Render
 1. Go to https://render.com → sign up (free) → **New ➜ Blueprint**.
@@ -55,8 +49,9 @@ by the blueprint — anyone can click "Sign in with Google", but only those two 
 `APP_USERNAME`/`APP_PASSWORD` blank so Google sign-in is the login.
 
 ## 3. First deploy finishes → note your URL
-It'll look like `https://gtm-workflow-xxxx.onrender.com`. Open it — your browser will
-ask for the **username/password** you set. ✅ Login works.
+It'll be **`https://aashish-gtm.onrender.com`** (Render appends a short suffix only if
+that name is already taken). This URL is **permanent** — it never changes across restarts.
+Open it and sign in with `APP_PASSWORD`. ✅ Login works.
 
 ## 4. Point tracking + webhooks at the public URL
 - Set `APP_BASE_URL` = your `https://...onrender.com` URL (Environment tab) → **Save**

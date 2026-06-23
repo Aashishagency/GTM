@@ -1,0 +1,529 @@
+{% extends "base.html" %}
+{% block title %}Find Leads{% endblock %}
+{% block head_extra %}
+<style>
+  .mode-card { cursor:pointer; border:2px solid #e3e7f5; border-radius:12px; transition:.15s; }
+  .mode-card:hover { border-color:#6c87f5; }
+  .mode-card.active { border-color:#6c87f5; background:#f0f3ff; box-shadow:0 2px 10px rgba(108,135,245,.18); }
+  .mode-card .bi { font-size:1.4rem; }
+  .size-chip input { margin-right:5px; }
+  .size-chip { cursor:pointer; font-size:.78rem; }
+  .results-table td { vertical-align:middle; }
+  .ln-badge { font-size:.7rem; }
+  .copy-em { cursor:pointer; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="fw-bold mb-0"><i class="bi bi-stars text-primary me-1"></i>Find Leads</h4>
+    <p class="text-muted mb-0 small">Pull contacts from Apollo, save them, and send a mailer — in one place.</p>
+  </div>
+  <span class="badge bg-dark align-self-center">Source: Apollo.io</span>
+</div>
+
+<!-- Apollo credit balance (so you can spend judiciously) -->
+<div id="creditsBar" class="card mb-3" style="display:none">
+  <div class="card-body py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-3 flex-wrap" id="creditsItems">
+      <span class="text-muted small">Loading Apollo credits…</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <a href="/settings" class="small text-decoration-none" title="Full breakdown">Details</a>
+      <button class="btn btn-sm btn-outline-secondary py-0" onclick="loadCredits()" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- STEP 1 — choose how to search -->
+<div class="row g-3 mb-2">
+  <div class="col-md-6">
+    <div class="mode-card p-3 h-100 active" id="cardDemographic" onclick="setMode('demographic')">
+      <div class="d-flex align-items-start gap-3">
+        <i class="bi bi-sliders text-primary"></i>
+        <div>
+          <div class="fw-bold">Search by demographics</div>
+          <div class="text-muted small">Location, position, company size — find people across many companies.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="mode-card p-3 h-100" id="cardCompany" onclick="setMode('company')">
+      <div class="d-flex align-items-start gap-3">
+        <i class="bi bi-building text-primary"></i>
+        <div>
+          <div class="fw-bold">Search by company name</div>
+          <div class="text-muted small">Enter one company and find the decision-makers inside it.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- STEP 2 — filters -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="fw-bold mb-3">Search filters</h6>
+
+        <!-- Company mode -->
+        <div id="companyFilters" style="display:none">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Company name or domain</label>
+            <input type="text" id="companyName" class="form-control" placeholder="e.g. Tata Motors or tatamotors.com">
+          </div>
+        </div>
+
+        <!-- Demographic mode -->
+        <div id="demoFilters">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Location <span class="text-muted fw-normal">(city, state or country)</span></label>
+            <input type="text" id="locations" class="form-control" placeholder="e.g. Mumbai, Maharashtra, India">
+            <span class="text-muted" style="font-size:.72rem">Comma-separate for multiple places. Leave blank for all of India.</span>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Company size <span class="text-muted fw-normal">(no. of employees)</span></label>
+            <div class="d-flex flex-wrap gap-1" id="sizeBoxes">
+              {% for sz in ['1-10','11-50','51-200','201-500','501-1000','1001-5000','5001-10000','10001+'] %}
+              <label class="badge bg-light text-dark border size-chip">
+                <input type="checkbox" value="{{ sz }}" {% if sz in ['201-500','501-1000','1001-5000','5001-10000','10001+'] %}checked{% endif %} class="size-cb">{{ sz }}
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared: target profile preset + position / title -->
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Target profile</label>
+          <select id="presetProfile" class="form-select form-select-sm" onchange="applyPreset()">
+            <option value="dealer_loyalty" selected>Dealer-program Loyalty Managers</option>
+            <option value="hr_head">Corporate HR Heads</option>
+            <option value="custom">Custom — type your own titles</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Position / job title <span class="text-muted fw-normal">(comma-separated)</span></label>
+          <input type="text" id="titles" class="form-control" oninput="document.getElementById('presetProfile').value='custom'"
+                 value="Dealer Loyalty Manager, Loyalty Manager, Channel Loyalty Manager, Loyalty Program Manager, Head of Loyalty, Channel Partner Manager">
+          <span class="text-muted" style="font-size:.72rem" id="titleHint">Pick a profile above, or edit these titles.</span>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">Results to fetch</label>
+          <select id="perPage" class="form-select form-select-sm">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+
+        <div class="form-check form-switch mb-2 p-2 rounded" style="background:#eef2ff">
+          <input class="form-check-input" type="checkbox" id="revealEmails" checked>
+          <label class="form-check-label small" for="revealEmails">
+            <strong>Reveal email IDs</strong>
+            <span class="text-muted d-block" style="font-size:.72rem">Unlocks real emails so you can mail them (~1 Apollo credit each, capped below).</span>
+          </label>
+        </div>
+        <div class="mb-3 ps-2" id="maxRevealWrap">
+          <label class="form-label small">Max emails to reveal per search</label>
+          <input type="number" id="maxReveal" class="form-control form-control-sm" value="10" min="0" max="50" style="max-width:110px">
+        </div>
+
+        <div class="form-check form-switch mb-3 p-2 rounded" style="background:#f0fff4">
+          <input class="form-check-input" type="checkbox" id="requireMobile" checked>
+          <label class="form-check-label small" for="requireMobile">
+            <strong>Only people with a mobile on file</strong>
+            <span class="text-muted d-block" style="font-size:.72rem">Keeps contacts whose mobile Apollo already holds, so the <em>Get mobile</em> button can reveal a real number.</span>
+          </label>
+        </div>
+
+        <button class="btn btn-primary w-100" id="searchBtn" onclick="runSearch()">
+          <i class="bi bi-search me-1"></i>Find Leads
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3 — results -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body">
+        <div id="emptyState" class="text-center py-5 text-muted">
+          <i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>
+          Choose how to search, set your filters, then click <strong>Find Leads</strong>.
+        </div>
+        <div id="loadingState" class="text-center py-5" style="display:none">
+          <div class="spinner-border text-primary mb-2"></div>
+          <p class="text-muted">Searching Apollo &amp; revealing emails… this can take a few seconds.</p>
+        </div>
+
+        <div id="resultsArea" style="display:none">
+          <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+            <h6 class="fw-bold mb-0">
+              Leads found <span class="badge bg-primary rounded-pill" id="countBadge">0</span>
+              <span class="text-muted small fw-normal" id="emailCount"></span>
+            </h6>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-sm btn-outline-primary" onclick="downloadExcel()">
+                <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
+              </button>
+              <button class="btn btn-sm btn-outline-success" onclick="openListModal()">
+                <i class="bi bi-list-check me-1"></i>Save to list
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="saveSelected(false)">
+                <i class="bi bi-plus-circle me-1"></i>Save to leads
+              </button>
+              <button class="btn btn-sm btn-success" onclick="saveSelected(true)">
+                <i class="bi bi-envelope-paper me-1"></i>Save + Send mailer
+              </button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover results-table align-middle">
+              <thead>
+                <tr>
+                  <th style="width:32px"><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
+                  <th>Person</th>
+                  <th>Company</th>
+                  <th>Mobile</th>
+                  <th>Email</th>
+                  <th class="text-center">In</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Save to list modal -->
+<div class="modal fade" id="listModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">Save <span id="listSelCount">0</span> contact(s) to a list</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="listMode" id="listNew" value="new" checked onchange="syncListMode()">
+          <label class="form-check-label small fw-semibold" for="listNew">Create a new list</label>
+        </div>
+        <input type="text" id="newListName" class="form-control form-control-sm mb-3" placeholder="e.g. Dealer Loyalty Managers — June">
+
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="listMode" id="listAppend" value="append" onchange="syncListMode()">
+          <label class="form-check-label small fw-semibold" for="listAppend">Append to an existing list</label>
+        </div>
+        <select id="existingList" class="form-select form-select-sm" disabled>
+          <option value="">— no saved lists yet —</option>
+        </select>
+        <div class="form-text">New contacts are added; duplicates (same email/profile) are skipped automatically.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success btn-sm" id="listSaveBtn" onclick="saveToList()">
+          <i class="bi bi-save me-1"></i>Save list
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let MODE = 'demographic';
+let people = [];
+
+// Saved-search profiles → job titles. Picking one fills the Position box.
+const PRESETS = {
+  dealer_loyalty: 'Dealer Loyalty Manager, Loyalty Manager, Channel Loyalty Manager, Loyalty Program Manager, Head of Loyalty, Channel Partner Manager, Dealer Program Manager',
+  hr_head: 'HR Head, Head of HR, Head of Human Resources, CHRO, Chief Human Resources Officer, VP HR, HR Director, Vice President Human Resources',
+};
+function applyPreset() {
+  const v = document.getElementById('presetProfile').value;
+  if (PRESETS[v]) document.getElementById('titles').value = PRESETS[v];
+}
+
+// Apollo credit balance strip — shows the two buckets this page spends, so you can
+// plan before searching (emails) or revealing mobiles. Refreshes after each spend.
+async function loadCredits() {
+  try {
+    const d = await (await fetch('/api/apollo/credits')).json();
+    const bar = document.getElementById('creditsBar');
+    if (!d.success) { bar.style.display = 'none'; return; }
+    const keep = (d.items || []).filter(i => ['lead_credit', 'direct_dial_credit'].includes(i.key));
+    document.getElementById('creditsItems').innerHTML =
+      '<span class="small fw-semibold me-1"><i class="bi bi-coin text-warning me-1"></i>Apollo credits:</span>' +
+      keep.map(i => {
+        const col = i.left <= 0 ? 'danger' : (i.low ? 'warning' : 'success');
+        const icon = i.key === 'direct_dial_credit' ? 'phone' : 'envelope';
+        const lbl = i.key === 'direct_dial_credit' ? 'Mobile' : 'Email';
+        return `<span class="small"><i class="bi bi-${icon} me-1 text-muted"></i>${lbl}: ` +
+          `<span class="badge bg-${col}-subtle text-${col} border border-${col}">${i.left.toLocaleString()} left</span>` +
+          `<span class="text-muted" style="font-size:.72rem"> / ${i.limit.toLocaleString()}</span></span>`;
+      }).join('');
+    bar.style.display = 'block';
+  } catch (e) {}
+}
+loadCredits();
+
+function setMode(m) {
+  MODE = m;
+  document.getElementById('cardDemographic').classList.toggle('active', m === 'demographic');
+  document.getElementById('cardCompany').classList.toggle('active', m === 'company');
+  document.getElementById('demoFilters').style.display = (m === 'demographic') ? 'block' : 'none';
+  document.getElementById('companyFilters').style.display = (m === 'company') ? 'block' : 'none';
+  document.getElementById('titleHint').textContent = (m === 'company')
+    ? 'Optional — narrows to these roles inside the company.'
+    : 'Optional — blank uses common decision-maker titles.';
+}
+
+document.getElementById('revealEmails').addEventListener('change', function() {
+  document.getElementById('maxRevealWrap').style.opacity = this.checked ? '1' : '.4';
+  document.getElementById('maxReveal').disabled = !this.checked;
+});
+
+function selectedSizes() {
+  return [...document.querySelectorAll('.size-cb:checked')].map(c => c.value);
+}
+
+async function runSearch() {
+  const payload = {
+    mode: MODE,
+    titles: document.getElementById('titles').value,
+    per_page: parseInt(document.getElementById('perPage').value, 10),
+    reveal_emails: document.getElementById('revealEmails').checked,
+    max_reveal: parseInt(document.getElementById('maxReveal').value || '0', 10),
+    require_mobile: document.getElementById('requireMobile').checked,
+  };
+  if (MODE === 'company') {
+    payload.company_name = document.getElementById('companyName').value.trim();
+    if (!payload.company_name) { showToast('Enter a company name', 'warning'); return; }
+  } else {
+    payload.locations = document.getElementById('locations').value;
+    payload.sizes = selectedSizes();
+  }
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsArea').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+  const btn = document.getElementById('searchBtn');
+  btn.disabled = true;
+
+  try {
+    const data = await postJSON('/find/search', payload);
+    document.getElementById('loadingState').style.display = 'none';
+    btn.disabled = false;
+    if (data.success) {
+      people = data.people || [];
+      renderResults(data);
+      loadCredits();  // a search with email-reveal spends lead credits
+      if (data.note) showToast(data.note, people.length ? 'info' : 'warning');
+    } else {
+      showToast(data.error || 'Search failed', 'danger');
+      document.getElementById('emptyState').style.display = 'block';
+    }
+  } catch (e) {
+    document.getElementById('loadingState').style.display = 'none';
+    btn.disabled = false;
+    showToast('Error: ' + e.message, 'danger');
+    document.getElementById('emptyState').style.display = 'block';
+  }
+}
+
+function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function renderResults(data) {
+  const body = document.getElementById('resultsBody');
+  body.innerHTML = '';
+  document.getElementById('countBadge').textContent = people.length;
+  document.getElementById('emailCount').textContent =
+    data.with_email ? `· ${data.with_email} with email ready to mail` : '';
+  document.getElementById('selectAll').checked = false;
+
+  if (!people.length) {
+    document.getElementById('emptyState').innerHTML =
+      '<i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>' + (data.note || 'No leads found.');
+    document.getElementById('emptyState').style.display = 'block';
+    return;
+  }
+
+  people.forEach((p, i) => {
+    const mobileCell = p.mobile
+      ? `<span class="fw-semibold text-success"><i class="bi bi-phone me-1"></i>${esc(p.mobile)}</span>`
+      : (p.has_direct_phone
+          ? `<button class="btn btn-sm btn-outline-success py-0 px-2" style="font-size:.72rem" title="~8 Apollo credits · also saves this lead" onclick="revealMobile(${i}, this)"><i class="bi bi-phone me-1"></i>Get mobile</button>`
+          : (p.phone ? `<span class="small"><i class="bi bi-telephone me-1 text-muted"></i>${esc(p.phone)}</span>` : '<span class="text-muted small">no mobile</span>'));
+    const emailCell = p.email
+      ? `<span class="small copy-em" title="Click to copy" onclick="navigator.clipboard.writeText('${esc(p.email)}');showToast('Email copied')"><i class="bi bi-envelope me-1 text-primary"></i>${esc(p.email)}</span>`
+      : `<span class="small text-warning"><i class="bi bi-lock me-1"></i>not revealed</span>`;
+    const ln = p.linkedin_url
+      ? `<a href="${esc(p.linkedin_url)}" target="_blank" class="text-primary" title="LinkedIn profile"><i class="bi bi-linkedin"></i></a>`
+      : '<span class="text-muted">—</span>';
+    body.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td><input type="checkbox" class="row-cb" data-i="${i}" checked></td>
+        <td>
+          <div class="fw-semibold">${esc(p.name)}</div>
+          <div class="text-muted small">${esc(p.title)}</div>
+          ${p.city ? `<div class="text-muted" style="font-size:.7rem"><i class="bi bi-geo-alt me-1"></i>${esc(p.city)}${p.state ? ', ' + esc(p.state) : ''}</div>` : ''}
+        </td>
+        <td>
+          <div class="small">${esc(p.company)}</div>
+          <div class="text-muted" style="font-size:.7rem">${esc(p.industry || '')}${p.company_size ? ' · ' + esc(String(p.company_size)) + ' emp' : ''}</div>
+        </td>
+        <td>${mobileCell}</td>
+        <td>${emailCell}</td>
+        <td class="text-center">${ln}</td>
+      </tr>`);
+  });
+  document.getElementById('resultsArea').style.display = 'block';
+}
+
+function toggleAll(box) {
+  document.querySelectorAll('.row-cb').forEach(c => c.checked = box.checked);
+}
+
+// Reveal one mobile: save the lead (so Apollo's async webhook can write the number
+// onto it by apollo_id), trigger the reveal (~8 credits), then poll until it lands.
+async function revealMobile(i, btn) {
+  const p = people[i];
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    if (!p._leadId) {
+      const s = await postJSON('/find/save', {people: [p]});
+      if (!s.success || !(s.lead_ids || []).length) throw new Error(s.error || 'Could not save lead');
+      p._leadId = s.lead_ids[0];
+    }
+    const r = await postJSON('/leads/' + p._leadId + '/reveal-phone', {});
+    if (!r.success) throw new Error(r.error || 'Reveal failed');
+    if (r.phone) { setMobileCell(btn, r.phone, p); showToast('Mobile revealed for ' + p.name); return; }
+    showToast('Fetching mobile for ' + p.name + '… (~10s)', 'info');
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries++;
+      try {
+        const d = await (await fetch('/leads/' + p._leadId + '/phone')).json();
+        if (d.phone) { clearInterval(timer); setMobileCell(btn, d.phone, p); showToast('Mobile revealed for ' + p.name); }
+        else if (tries >= 12) { clearInterval(timer); resetMobileBtn(btn); showToast('Mobile not delivered yet — it will appear on the saved lead shortly.', 'warning'); }
+      } catch (e) { clearInterval(timer); resetMobileBtn(btn); }
+    }, 3000);
+  } catch (e) {
+    resetMobileBtn(btn);
+    showToast(e.message, 'danger');
+  }
+}
+function setMobileCell(btn, phone, p) {
+  p.mobile = phone;
+  btn.closest('td').innerHTML = '<span class="fw-semibold text-success"><i class="bi bi-phone me-1"></i>' + esc(phone) + '</span>';
+  loadCredits();  // a mobile reveal spends a direct-dial credit
+}
+function resetMobileBtn(btn) {
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-phone me-1"></i>Get mobile';
+}
+
+function selectedPeople() {
+  return [...document.querySelectorAll('.row-cb:checked')].map(c => people[parseInt(c.dataset.i, 10)]);
+}
+
+// Download the selected (revealed) contacts straight to an .xlsx file.
+async function downloadExcel() {
+  const chosen = selectedPeople();
+  if (!chosen.length) { showToast('Select at least one lead', 'warning'); return; }
+  const fname = (MODE === 'company'
+    ? (document.getElementById('companyName').value.trim() || 'company')
+    : 'apollo_contacts');
+  try {
+    const r = await fetch('/find/export-xlsx', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({people: chosen, filename: fname})
+    });
+    if (!r.ok) throw new Error('Export failed');
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname.replace(/[^A-Za-z0-9 _-]/g, '').replace(/ /g, '_') + '.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    showToast(`Downloaded ${chosen.length} contact(s) as Excel`);
+  } catch (e) { showToast('Download failed: ' + e.message, 'danger'); }
+}
+
+function syncListMode() {
+  const append = document.getElementById('listAppend').checked;
+  document.getElementById('existingList').disabled = !append;
+  document.getElementById('newListName').disabled = append;
+}
+
+async function openListModal() {
+  const chosen = selectedPeople();
+  if (!chosen.length) { showToast('Select at least one lead', 'warning'); return; }
+  document.getElementById('listSelCount').textContent = chosen.length;
+  // Load existing lists for the append dropdown.
+  try {
+    const d = await (await fetch('/api/lists')).json();
+    const sel = document.getElementById('existingList');
+    const lists = d.lists || [];
+    sel.innerHTML = lists.length
+      ? lists.map(l => `<option value="${l.name}">${l.name} (${l.count})</option>`).join('')
+      : '<option value="">— no saved lists yet —</option>';
+    document.getElementById('listAppend').disabled = !lists.length;
+    if (!lists.length) document.getElementById('listNew').checked = true;
+  } catch (e) {}
+  syncListMode();
+  new bootstrap.Modal(document.getElementById('listModal')).show();
+}
+
+async function saveToList() {
+  const chosen = selectedPeople();
+  if (!chosen.length) { showToast('Select at least one lead', 'warning'); return; }
+  const append = document.getElementById('listAppend').checked;
+  const name = append ? document.getElementById('existingList').value
+                      : document.getElementById('newListName').value.trim();
+  if (!name) { showToast(append ? 'Pick a list to append to' : 'Enter a list name', 'warning'); return; }
+  const btn = document.getElementById('listSaveBtn');
+  btn.disabled = true;
+  try {
+    const d = await postJSON('/lists/save', {name, append, people: chosen});
+    if (!d.success) { showToast(d.error || 'Save failed', 'danger'); btn.disabled = false; return; }
+    bootstrap.Modal.getInstance(document.getElementById('listModal')).hide();
+    const msg = `“${d.name}”: ${d.added} added` + (d.duplicates ? `, ${d.duplicates} duplicate(s) skipped` : '') + ` · ${d.total} total`;
+    showToast(msg);
+    // Offer an immediate download of the updated list.
+    setTimeout(() => { window.location.href = d.download_url; }, 600);
+  } catch (e) { showToast('Save failed: ' + e.message, 'danger'); }
+  btn.disabled = false;
+}
+
+async function saveSelected(thenMailer) {
+  const chosen = selectedPeople();
+  if (!chosen.length) { showToast('Select at least one lead', 'warning'); return; }
+  if (thenMailer) {
+    const noEmail = chosen.filter(p => !p.email).length;
+    if (noEmail === chosen.length) {
+      showToast('None of the selected leads have a revealed email — turn on "Reveal email IDs" and search again.', 'warning');
+      return;
+    }
+    if (noEmail) showToast(`${noEmail} selected lead(s) have no email yet and won't be mailable.`, 'info');
+  }
+  const data = await postJSON('/find/save', {people: chosen});
+  if (!data.success) { showToast(data.error || 'Save failed', 'danger'); return; }
+  const msg = `${data.saved} saved` + (data.duplicates ? `, ${data.duplicates} already in leads` : '');
+  if (thenMailer) {
+    showToast(msg + ' — opening mailer…');
+    setTimeout(() => location.href = '/campaigns/new?leads=' + encodeURIComponent((data.lead_ids || []).join(',')), 800);
+  } else {
+    showToast(msg + ' — view them in All Leads.');
+  }
+}
+</script>
+{% endblock %}

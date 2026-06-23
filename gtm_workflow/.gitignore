@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+lists/
+apollo_webhook_last.json

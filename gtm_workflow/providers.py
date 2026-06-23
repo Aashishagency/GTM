@@ -99,6 +99,90 @@ def company_people(company_name: str, role_titles: list[str], country: str = "In
     return hunter.parse_domain_search(result, role_keywords=role_titles, country=country)
 
 
+# ─── Unified "Find Leads" finder (Apollo-only, simple UI) ─────────────────────
+
+# Default buying-committee titles, used only when the user gives no position so a
+# demographic search still returns relevant decision-makers rather than everyone.
+_FIND_DEFAULT_TITLES = ["Loyalty Manager", "Head of Loyalty", "CRM Manager",
+                        "Customer Retention Manager", "Marketing Manager",
+                        "Sales Manager", "Founder", "CEO", "Director"]
+
+
+def _reveal_emails(parsed: list[dict], max_reveal: int) -> None:
+    """Unlock the work email (≈1 Apollo credit each) for up to `max_reveal` of the
+    parsed people so they're immediately mailer-ready. Mutates in place. Plan/auth/
+    quota errors are raised; per-contact misses are skipped."""
+    revealed = 0
+    for lead in parsed:
+        if revealed >= max_reveal:
+            break
+        if lead.get("email"):
+            continue
+        try:
+            raw = apollo.enrich_person(
+                apollo_id=lead.get("apollo_id"), name=lead.get("name"),
+                company=lead.get("company") or None,
+                linkedin_url=lead.get("linkedin_url") or None,
+                reveal_personal_emails=True, reveal_phone_number=False)
+            fields = apollo.parse_enriched(raw)
+            if fields.get("email"):
+                lead["email"] = fields["email"]
+                lead["email_status"] = fields.get("email_status", lead.get("email_status"))
+            if fields.get("phone") and not lead.get("phone"):
+                lead["phone"] = fields["phone"]
+            if fields.get("linkedin_url") and not lead.get("linkedin_url"):
+                lead["linkedin_url"] = fields["linkedin_url"]
+            lead["enriched"] = True
+            revealed += 1
+        except apollo.ApolloError as e:
+            msg = str(e).lower()
+            if any(t in msg for t in ("403", "401", "free plan", "not accessible",
+                                      "upgrade", "credit", "rate limit", "invalid")):
+                raise
+            continue
+
+
+def find_people(mode: str, company_name: str = None, locations: list[str] = None,
+                titles: list[str] = None, sizes: list[str] = None,
+                seniorities: list[str] = None, country: str = "India",
+                per_page: int = 25, reveal_emails: bool = True,
+                max_reveal: int = 10, require_mobile: bool = False) -> list[dict]:
+    """Apollo-powered people finder backing the simple Find Leads page.
+
+    mode='company'     → everyone (optionally filtered by position) inside a named company.
+    mode='demographic' → people matching location / position / company size / seniority.
+
+    Returns lead dicts with company, name, mobile-on-file flag, email (revealed for up
+    to `max_reveal`), LinkedIn, etc. — the fields the user asked to see and save."""
+    apollo._require_key()
+
+    if mode == "company":
+        if not (company_name or "").strip():
+            raise apollo.ApolloError("Enter a company name (or domain) to search.")
+        result = apollo.get_people_in_company(
+            company_name=company_name, job_titles=titles or None,
+            country=country or None, per_page=per_page)
+    else:
+        result = apollo.search_people(
+            job_titles=titles or _FIND_DEFAULT_TITLES,
+            country=country or "India", locations=locations or None,
+            company_sizes=sizes or None, seniorities=seniorities or None,
+            per_page=per_page)
+
+    people = result.get("people") or result.get("contacts") or []
+    parsed = [apollo.parse_person(x) for x in people if x.get("name") or x.get("first_name")]
+
+    # "Only contacts with a mobile on file" — Apollo states this credit-free via
+    # has_direct_phone; the actual digits are revealed on demand per lead later.
+    if require_mobile:
+        parsed = [l for l in parsed if l.get("has_direct_phone")]
+
+    if reveal_emails and max_reveal > 0:
+        _reveal_emails(parsed, max_reveal)
+
+    return parsed
+
+
 # ─── Discovery ────────────────────────────────────────────────────────────────
 
 def discover(titles: list[str], industries: list[str], sizes: list[str],

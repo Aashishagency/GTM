@@ -108,6 +108,20 @@
       </div>
     </div>
 
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="fw-bold mb-0"><i class="bi bi-coin me-1 text-warning"></i>Apollo Credits</h6>
+          <button class="btn btn-sm btn-outline-secondary py-0" onclick="loadApolloCredits()" id="credRefresh" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div id="apolloCredits"><span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading credits…</span></div>
+        <p class="text-muted mb-0 mt-2" style="font-size:.72rem">
+          <strong>Email/People</strong> credits reveal email IDs (~1 each). <strong>Mobile</strong> credits reveal
+          direct-dial numbers. Balances reset monthly per your Apollo plan.
+        </p>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-body">
         <h6 class="fw-bold mb-3"><i class="bi bi-magic me-1"></i>How the automation works</h6>
@@ -156,6 +170,35 @@ async function checkReplies() {
   } catch (e) { out.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Request failed</div>'; }
   btn.disabled = false;
 }
+
+async function loadApolloCredits() {
+  const box = document.getElementById('apolloCredits');
+  const btn = document.getElementById('credRefresh');
+  btn.disabled = true;
+  box.innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading credits…</span>';
+  try {
+    const d = await (await fetch('/api/apollo/credits')).json();
+    if (!d.success) {
+      box.innerHTML = `<div class="alert alert-warning py-2 small mb-0">${d.error || 'Could not load credits'}</div>`;
+      btn.disabled = false; return;
+    }
+    box.innerHTML = (d.items || []).map(i => {
+      const col = i.left <= 0 ? 'danger' : (i.low ? 'warning' : 'success');
+      return `<div class="mb-2">
+        <div class="d-flex justify-content-between small">
+          <span class="fw-semibold">${i.label}</span>
+          <span class="text-${col} fw-semibold">${i.left.toLocaleString()} left</span>
+        </div>
+        <div class="progress" style="height:6px"><div class="progress-bar bg-${col}" style="width:${i.pct_used}%"></div></div>
+        <div class="text-muted" style="font-size:.68rem">${i.consumed.toLocaleString()} used of ${i.limit.toLocaleString()} · ${i.desc}</div>
+      </div>`;
+    }).join('') || '<span class="text-muted small">No credit data returned.</span>';
+  } catch (e) {
+    box.innerHTML = '<div class="alert alert-danger py-2 small mb-0">Request failed</div>';
+  }
+  btn.disabled = false;
+}
+loadApolloCredits();
 
 async function testProvider() {
   const btn = document.getElementById('provBtn'), out = document.getElementById('provResult');

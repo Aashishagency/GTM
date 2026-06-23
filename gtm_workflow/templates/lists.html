@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Contact Lists{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4 class="fw-bold mb-0"><i class="bi bi-file-earmark-spreadsheet text-success me-1"></i>Contact Lists</h4>
+    <p class="text-muted mb-0 small">Saved Excel lists of contacts. Download anytime, or append more from <a href="/find">Find Leads</a>.</p>
+  </div>
+  <a href="/find" class="btn btn-primary btn-sm"><i class="bi bi-stars me-1"></i>Find more leads</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    {% if lists %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr><th>List name</th><th class="text-center">Contacts</th><th>Last updated</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody>
+          {% for l in lists %}
+          <tr id="row-{{ loop.index }}">
+            <td class="fw-semibold"><i class="bi bi-file-earmark-excel text-success me-1"></i>{{ l.name }}</td>
+            <td class="text-center"><span class="badge bg-primary rounded-pill">{{ l.count }}</span></td>
+            <td class="text-muted small">{{ l.modified }}</td>
+            <td class="text-end">
+              <a href="/lists/{{ l.name|urlencode }}/download" class="btn btn-sm btn-outline-success py-0">
+                <i class="bi bi-download me-1"></i>Download
+              </a>
+              <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteList('{{ l.name|e }}', {{ loop.index }})">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-file-earmark-spreadsheet fs-1 d-block mb-2 opacity-25"></i>
+      No lists yet. Go to <a href="/find">Find Leads</a>, select contacts, and click <strong>Save to list</strong>.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function deleteList(name, idx) {
+  if (!confirm('Delete the list “' + name + '”? The Excel file will be removed.')) return;
+  const d = await postJSON('/lists/' + encodeURIComponent(name) + '/delete', {});
+  if (d.success) {
+    const row = document.getElementById('row-' + idx);
+    if (row) row.remove();
+    showToast('List deleted');
+  } else {
+    showToast('Could not delete list', 'danger');
+  }
+}
+</script>
+{% endblock %}
